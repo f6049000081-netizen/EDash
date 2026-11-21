@@ -205,6 +205,14 @@ curl -X POST localhost:8080/v1/auth/otp/verify -H 'Content-Type: application/jso
 # then send "Authorization: Bearer <access_token>" on every other request
 ```
 
+## Dev server for the app
+
+- **Start it:** `./run-dev.sh` builds the API and runs it in the `g1api` container on port 8080. It uses the `g1dev` database in `g1db`, separate from the test database.
+- **Settings:** they come from `backend/.env`, which git ignores. It holds `APP_ENV=dev`, `DATABASE_URL=postgres://postgres:test@g1db:5432/g1dev` and two random base64 32-byte keys, `AUTH_SIGNING_KEY` and `OTP_HMAC_KEY`. Keeping the keys there means sessions survive restarts.
+- **First time:** create the database with `CREATE DATABASE g1dev`, then load `db/schema.sql` into it.
+- **Sign-in codes:** they aren't sent in dev. Read them with `docker logs -f g1api 2>&1 | grep "dev sms"`.
+- **Phones:** a phone reaches the API at the PC's address on the local network, so build the app with that address in `API_BASE_URL`. On a network Windows marks as Public, inbound port 8080 may need a firewall rule.
+
 ## Next
 
 - **Real providers for production:**
