@@ -18,9 +18,9 @@ Wallet-centred super app for Ethiopia and the diaspora. The original brief is `M
 6. **telebirr top-ups and daily reconciliation.** Switched off until merchant credentials are set. The wire details still to confirm against the telebirr merchant agreement are listed in `backend/README.md`.
 7. **Backend round for the app:** activity feed, KYC limit enforcement (values still to come from compliance) and `PATCH /v1/me`.
 
-8. **Flutter consumer app** in `app/`: sign-in, PIN, home, send, QR pay, telebirr top-up, activity and profile, in four languages. `flutter analyze` is clean and 15 tests pass. Run it with `app/flutterw.sh` (Flutter runs in Docker from the `g1flutter` volume). A debug APK builds with `./flutterw.sh 'flutter build apk --debug ...'` (Android SDK and JDK 17 in the `g1android` volume). It has not been run on a phone or emulator yet.
+8. **Flutter consumer app** in `app/`: sign-in, PIN, home, send, QR pay, telebirr top-up, activity and profile, in four languages. `flutter analyze` is clean and 15 tests pass. Run it with `app/flutterw.sh` (Flutter runs in Docker from the `g1flutter` volume). A debug APK builds with `./flutterw.sh 'flutter build apk --debug ...'` (Android SDK and JDK 17 in the `g1android` volume). Tested on a real Android phone against the dev server (`backend/run-dev.sh`) on 2026-11-21: sign-in, PIN, balance, QR pay and send to a phone number all worked. Test money comes from `backend/dev-topup.sh` (sandbox rail).
 
-**Next on the roadmap:** install the APK on a phone or emulator and try it against the local API; a native-speaker review of the Afaan Oromo and Tigrinya text. After that: the outbox relay to Kafka (push notifications), biometric confirmation plus DPoP, and merchant payouts. Telebirr go-live work is listed under "Next" in `backend/README.md`.
+**Next on the roadmap:** a native-speaker review of the Afaan Oromo and Tigrinya text; then push notifications (outbox relay), biometric confirmation plus DPoP, and merchant payouts. After that: the outbox relay to Kafka (push notifications), biometric confirmation plus DPoP, and merchant payouts. Telebirr go-live work is listed under "Next" in `backend/README.md`.
 
 ## Running things (Windows; Go is NOT installed, everything runs in Docker)
 
