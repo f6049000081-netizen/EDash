@@ -26,6 +26,7 @@ CREATE SCHEMA risk;
 CREATE SCHEMA recon;
 CREATE SCHEMA admin;
 CREATE SCHEMA platform;
+CREATE SCHEMA notify;
 
 -- ---------------------------------------------------------------------------
 -- Shared types
@@ -775,3 +776,34 @@ CREATE TABLE platform.outbox (
     published_at    TIMESTAMPTZ
 );
 CREATE INDEX ON platform.outbox (id) WHERE published_at IS NULL;
+
+-- ---------------------------------------------------------------------------
+-- NOTIFY: what users are told about, and where to push it
+-- ---------------------------------------------------------------------------
+-- One row per notification shown in the app. Built from outbox events; the unique key makes a redelivered
+-- event (the relay is at-least-once) a no-op.
+CREATE TABLE notify.notifications (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id         UUID NOT NULL REFERENCES identity.users(id),
+    kind            TEXT NOT NULL,              -- money_received, payment_succeeded, payment_failed, topup_succeeded, security ...
+    title           TEXT NOT NULL,              -- already in the user's language
+    body            TEXT NOT NULL,
+    data            JSONB NOT NULL DEFAULT '{}', -- e.g. {"intent_id": ...} so the app can open the right screen
+    source_event    BIGINT NOT NULL,            -- platform.outbox.id
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    read_at         TIMESTAMPTZ,
+    pushed_at       TIMESTAMPTZ,
+    UNIQUE (user_id, source_event, kind)
+);
+CREATE INDEX ON notify.notifications (user_id, created_at DESC, id DESC);
+CREATE INDEX ON notify.notifications (user_id) WHERE read_at IS NULL;
+
+-- Firebase Cloud Messaging registration token for a signed-in device (Android, and iOS through FCM).
+CREATE TABLE notify.push_tokens (
+    device_id       UUID PRIMARY KEY REFERENCES identity.devices(id),
+    user_id         UUID NOT NULL REFERENCES identity.users(id),
+    token           TEXT NOT NULL UNIQUE,
+    platform        TEXT NOT NULL CHECK (platform IN ('android', 'ios')),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX ON notify.push_tokens (user_id);

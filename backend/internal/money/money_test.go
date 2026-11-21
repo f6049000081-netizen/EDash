@@ -63,3 +63,21 @@ func TestDecimalRoundTrip(t *testing.T) {
 		t.Errorf("Decimal: %s", d)
 	}
 }
+
+func TestDisplay(t *testing.T) {
+	for _, c := range []struct {
+		m    Money
+		want string
+	}{
+		{New(0, ETB), "ETB 0.00"},
+		{New(5, ETB), "ETB 0.05"},
+		{New(99_999, ETB), "ETB 999.99"},
+		{New(125_000, ETB), "ETB 1,250.00"},
+		{New(123_456_789, ETB), "ETB 1,234,567.89"},
+		{New(-2_500, ETB), "ETB -25.00"},
+	} {
+		if got := c.m.Display(); got != c.want {
+			t.Errorf("%d: %q, want %q", c.m.AmountMinor, got, c.want)
+		}
+	}
+}

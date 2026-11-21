@@ -293,6 +293,46 @@ class ActivityPage {
   final String? nextCursor;
 }
 
+/// One entry in the bell list. Title and body arrive already written in the user's language.
+class AppNotification {
+  AppNotification({
+    required this.id,
+    required this.kind,
+    required this.title,
+    required this.body,
+    required this.createdAt,
+    required this.read,
+    this.intentId,
+  });
+
+  final String id;
+  final String kind; // money_received, payment_*, topup_*, new_device, pin_reset, pin_changed, session_revoked
+  final String title;
+  final String body;
+  final DateTime createdAt;
+  final bool read;
+  final String? intentId;
+
+  bool get isSecurity => const {'new_device', 'pin_reset', 'pin_changed', 'session_revoked'}.contains(kind);
+
+  factory AppNotification.fromJson(Map<String, dynamic> j) => AppNotification(
+        id: j['id'] as String,
+        kind: j['kind'] as String,
+        title: j['title'] as String,
+        body: j['body'] as String,
+        createdAt: DateTime.parse(j['created_at'] as String).toLocal(),
+        read: j['read'] as bool,
+        intentId: (j['data'] as Map<String, dynamic>?)?['intent_id'] as String?,
+      );
+}
+
+class NotificationPage {
+  NotificationPage(this.items, this.nextCursor, this.unread);
+  final List<AppNotification> items;
+  final String? nextCursor;
+  final int unread;
+}
+
 class PaymentIntent {
   PaymentIntent({
     required this.id,
@@ -403,6 +443,18 @@ class GebeyaApi {
       j['next_cursor'] as String?,
     );
   }
+
+  Future<NotificationPage> notifications({String? cursor, int limit = 30}) async {
+    final j = await api.get('/v1/notifications', query: {'limit': '$limit', if (cursor != null) 'cursor': cursor});
+    return NotificationPage(
+      (j['items'] as List).map((e) => AppNotification.fromJson(e as Map<String, dynamic>)).toList(),
+      j['next_cursor'] as String?,
+      j['unread'] as int,
+    );
+  }
+
+  /// Marks everything read. Safe to repeat.
+  Future<void> markAllNotificationsRead() => api.post('/v1/notifications/read', {'all': true});
 
   Future<QrPayee> resolveQr(String payload) async {
     final j = await api.post('/v1/qr/resolve', {'payload': payload});

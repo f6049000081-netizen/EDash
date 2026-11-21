@@ -33,6 +33,7 @@ tags:
   - name: Merchants
   - name: Admin
   - name: Webhooks
+  - name: Notifications
 
 paths:
   /v1/auth/otp:
@@ -293,6 +294,85 @@ paths:
                 properties:
                   items: { type: array, items: { $ref: '#/components/schemas/ActivityItem' } }
                   next_cursor: { type: [string, 'null'] }
+
+  /v1/notifications:
+    get:
+      tags: [Notifications]
+      summary: The user's notifications, newest first, with the unread count
+      description: |
+        Written in the user's language when the event happened. The app polls this while it is open and shows
+        the unread count on the bell; push messages (when Firebase is configured) carry the same text.
+        Kinds: `money_received`; for outcomes decided after the payer left the confirm screen,
+        `payment_succeeded`, `payment_failed`, `topup_succeeded`, `topup_failed`, `topup_held`; and security
+        alerts `new_device`, `pin_reset`, `pin_changed`, `session_revoked`.
+      operationId: listNotifications
+      parameters:
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: One page of notifications
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, next_cursor, unread]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Notification' } }
+                  next_cursor: { type: [string, 'null'] }
+                  unread: { type: integer, minimum: 0, description: 'Unread notifications in total, not just on this page.' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/notifications/read:
+    post:
+      tags: [Notifications]
+      summary: Mark notifications read
+      description: 'Send `ids`, or `all: true`. Ids belonging to someone else are ignored. Repeating the call changes nothing, so no Idempotency-Key is needed.'
+      operationId: markNotificationsRead
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids: { type: array, maxItems: 200, items: { type: string, format: uuid } }
+                all: { type: boolean }
+      responses:
+        '200':
+          description: How many changed
+          content:
+            application/json:
+              schema: { type: object, properties: { updated: { type: integer } } }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/devices/current/push-token:
+    put:
+      tags: [Notifications]
+      summary: Register this device's Firebase push token
+      description: |
+        Android and iPhone only. Replaces the device's earlier token. A token already held by another device
+        (the phone was signed in to another account) moves to this one. Signing out removes it.
+      operationId: putPushToken
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string, maxLength: 4096 }
+      responses:
+        '204': { description: Stored }
+        '422': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [Notifications]
+      summary: Stop push notifications to this device
+      operationId: deletePushToken
+      responses:
+        '204': { description: Removed }
+        '401': { $ref: '#/components/responses/Problem' }
 
   /v1/funding-sources:
     get:
@@ -930,6 +1010,20 @@ components:
         charged: { type: boolean, description: Outgoing items only. Whether money left the wallet. }
         failure_code: { type: string, description: 'Problem code when status is failed, for example insufficient_funds or limit_exceeded.' }
         occurred_at: { type: string, format: date-time }
+    Notification:
+      type: object
+      required: [id, kind, title, body, data, created_at, read]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [money_received, payment_succeeded, payment_failed, topup_succeeded, topup_failed, topup_held, new_device, pin_reset, pin_changed, session_revoked] }
+        title: { type: string, example: Money received }
+        body: { type: string, example: 'Abebe sent you ETB 150.00.' }
+        data:
+          type: object
+          additionalProperties: { type: string }
+          description: '`intent_id` for payment notifications (open the payment), `kind: security` for alerts.'
+        created_at: { type: string, format: date-time }
+        read: { type: boolean }
     Biller:
       type: object
       properties:

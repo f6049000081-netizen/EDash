@@ -16,8 +16,8 @@ Gebeya One is a wallet-centred super app for Ethiopia and the diaspora. This rep
 ```
 db/schema.sql      PostgreSQL 16 schema: 13 domain schemas, double-entry ledger, RBAC, audit log
 api/openapi.yaml   OpenAPI 3.1 contract for Phase 1 (auth, wallet, payments, bills, merchants, admin, webhooks)
-backend/           Go service: sign-in, ledger, payments, telebirr top-ups and reconciliation (see backend/README.md)
-app/               Flutter consumer app: sign-in, wallet, send, QR pay, top-up, activity, profile (see app/README.md)
+backend/           Go service: sign-in, ledger, payments, telebirr top-ups, reconciliation, outbox relay and notifications (see backend/README.md)
+app/               Flutter consumer app: sign-in, wallet, send, QR pay, top-up, activity, notifications, profile (see app/README.md)
 ```
 
 ## Data model rules
@@ -36,7 +36,7 @@ app/               Flutter consumer app: sign-in, wallet, send, QR pay, top-up, 
 
 - The schema loads cleanly into a fresh `postgres:16.4` container.
 - Ledger and approval rules were tested by hand: a balanced entry commits, an entry that is unbalanced by one santim is rejected, a duplicate business event is rejected, updates to postings are blocked, and self-approval is blocked.
-- `npx @redocly/cli@1.25.0 lint api/openapi.yaml`: valid, with 23 style warnings (missing tag descriptions and a few operations without a 4XX response).
+- `npx @redocly/cli@1.25.0 lint api/openapi.yaml`: valid, with 24 style warnings (missing tag descriptions and a few operations without a 4XX response).
 
 To check the schema again:
 

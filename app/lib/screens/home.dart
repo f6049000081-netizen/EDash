@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../core/api.dart';
@@ -6,6 +8,7 @@ import '../l10n/strings.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
 import 'activity.dart';
+import 'notifications.dart';
 import 'pay.dart';
 import 'profile.dart';
 import 'topup.dart';
@@ -18,8 +21,39 @@ class Shell extends StatefulWidget {
   State<Shell> createState() => _ShellState();
 }
 
-class _ShellState extends State<Shell> {
+class _ShellState extends State<Shell> with WidgetsBindingObserver {
   int _tab = 0;
+  Timer? _poll;
+
+  // The bell is polled every 30 seconds while the app is in the foreground, and right away on resume.
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _startPolling();
+  }
+
+  void _startPolling() {
+    _poll?.cancel();
+    _poll = Timer.periodic(const Duration(seconds: 30), (_) => AppScope.read(context).refreshNotifications());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      AppScope.read(context).refresh();
+      _startPolling();
+    } else if (state == AppLifecycleState.paused) {
+      _poll?.cancel();
+    }
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
 
   void _openPay() => showPaySheet(context);
 
@@ -156,7 +190,13 @@ class _HomeTabState extends State<HomeTab> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(G1.s4, G1.s6, G1.s4, G1.s6),
           children: [
-            Text(name.isEmpty ? _greeting(s) : '${_greeting(s)}, ${name.split(' ').first}', style: text.displayMedium),
+            Row(children: [
+              Expanded(
+                child: Text(name.isEmpty ? _greeting(s) : '${_greeting(s)}, ${name.split(' ').first}',
+                    style: text.displayMedium),
+              ),
+              NotificationBell(unread: app.unreadNotifications),
+            ]),
             const SizedBox(height: G1.s6),
             BalanceCard(
               balance: app.balance,

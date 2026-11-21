@@ -76,9 +76,16 @@ func (s *Server) refreshToken(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
-	if err := s.Identity.Logout(r.Context(), platform.PrincipalFrom(r.Context())); err != nil {
+	p := platform.PrincipalFrom(r.Context())
+	if err := s.Identity.Logout(r.Context(), p); err != nil {
 		s.failAuth(w, err)
 		return
+	}
+	// A signed-out device must stop showing this user's notifications.
+	if s.Notify != nil {
+		if err := s.Notify.RemovePushToken(r.Context(), p.DeviceID); err != nil && s.Log != nil {
+			s.Log.Warn("remove push token on logout", "err", err)
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

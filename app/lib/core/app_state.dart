@@ -22,6 +22,32 @@ class AppState extends ChangeNotifier {
   /// Activity changes after every payment or top-up; screens listening to this reload.
   int activityVersion = 0;
 
+  /// Unread count for the bell. Polled while the app is open (see Shell); push alerts carry the same text.
+  int unreadNotifications = 0;
+
+  Future<void> refreshNotifications() async {
+    if (stage != Stage.ready) return;
+    try {
+      final page = await api.notifications(limit: 1);
+      if (page.unread != unreadNotifications) {
+        unreadNotifications = page.unread;
+        notifyListeners();
+      }
+    } on ApiProblem {
+      // the bell keeps its last count; the next poll tries again
+    }
+  }
+
+  Future<void> markNotificationsRead() async {
+    unreadNotifications = 0;
+    notifyListeners();
+    try {
+      await api.markAllNotificationsRead();
+    } on ApiProblem {
+      // shown as read here; the server catches up next time the list opens
+    }
+  }
+
   Future<void> start() async {
     bool restored;
     try {
@@ -74,6 +100,7 @@ class AppState extends ChangeNotifier {
       profile = results[1] as Profile;
       activityVersion++;
       notifyListeners();
+      await refreshNotifications();
     } on ApiProblem {
       // keep what we had; the home screen offers a retry when balance is still null
       notifyListeners();
@@ -110,6 +137,7 @@ class AppState extends ChangeNotifier {
   void _signedOut() {
     profile = null;
     balance = null;
+    unreadNotifications = 0;
     stage = Stage.signedOut;
     notifyListeners();
   }

@@ -50,7 +50,7 @@ Flutter isn't installed on this machine. `flutterw.sh` runs Flutter inside Docke
 
 ```sh
 # from app/ (Git Bash)
-./flutterw.sh 'flutter pub get && flutter analyze && flutter test'   # expect: No issues found, 15 tests pass
+./flutterw.sh 'flutter pub get && flutter analyze && flutter test'   # expect: No issues found, 16 tests pass
 ```
 
 To rebuild the SDK volume:
@@ -81,7 +81,7 @@ Production builds must point `API_BASE_URL` at an `https` address.
 - Device attestation. At sign-in the app sends a random install ID, kept in secure storage, as the device `attestation`. That's enough for the dev server, which only uses it to recognise the device. Production needs Play Integrity and App Attest tokens, and the production verifiers reject an install ID.
 
 - Biometric confirmation. It needs the server's DPoP and biometric-key work; the PIN is the only method for now.
-- Push notifications. They need the outbox relay.
+- Push notifications to the lock screen. The bell and the notifications list work (polled every 30 seconds while the app is open). Pushes need a Firebase project: add `google-services.json` and the Firebase messaging plugin, then send the token to `PUT /v1/devices/current/push-token`.
 - Request money, bills, airtime and orders. Their backend modules don't exist yet.
 - PIN reset by SMS code. The server supports it, but the app has no screen for it yet.
 - The Ethiopian calendar and localized date formats.

@@ -9,7 +9,14 @@
 //	OTP_HMAC_KEY          base64 key (32+ bytes) for hashing one-time codes
 //	                      In dev, missing keys are generated at startup, so tokens stop working on restart.
 //	OTP_ALLOWED_PREFIXES  comma-separated E.164 prefixes codes may be sent to (default: Ethiopia + diaspora list)
+//	OTP_RESEND_SECONDS    minimum gap between sign-in codes to one number (default 30)
+//	OTP_HOURLY_MAX        sign-in codes per number per hour (default 5)
 //	CLIENT_IP_HEADER      header a trusted proxy sets with the client address, e.g. CF-Connecting-IP
+//	KAFKA_BROKERS         comma-separated brokers. Set: the outbox relay publishes to Kafka and the
+//	                      notifications service consumes from it (group "notify"). Unset: events go
+//	                      straight from the outbox to the notifications service in this process.
+//	FCM_SERVICE_ACCOUNT_FILE  Firebase service-account key (JSON). Set: notifications are also pushed to
+//	                      phones. Unset: they are kept for the in-app list only.
 //
 // telebirr top-ups are enabled only when the merchant credentials are set (see telebirrConfig).
 // Without them the telebirr rail answers rail_unavailable. Nothing is simulated.
@@ -25,6 +32,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -34,6 +42,8 @@ import (
 	"superapp/backend/internal/httpapi"
 	"superapp/backend/internal/identity"
 	"superapp/backend/internal/ledger"
+	"superapp/backend/internal/notify"
+	"superapp/backend/internal/outbox"
 	"superapp/backend/internal/payments"
 	"superapp/backend/internal/platform"
 	"superapp/backend/internal/rails/telebirr"
@@ -75,6 +85,22 @@ func run(log *slog.Logger) error {
 	if v := os.Getenv("OTP_ALLOWED_PREFIXES"); v != "" {
 		cfg.AllowedPrefixes = strings.Split(v, ",")
 	}
+	// Sign-in code throttles. The defaults (30 s between codes, 5 per number per hour) are the fraud
+	// controls; the dev server loosens them in backend/.env so testers aren't locked out.
+	if v := os.Getenv("OTP_RESEND_SECONDS"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			return fmt.Errorf("OTP_RESEND_SECONDS: want a whole number of seconds, got %q", v)
+		}
+		cfg.OTPResendAfter = time.Duration(n) * time.Second
+	}
+	if v := os.Getenv("OTP_HOURLY_MAX"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			return fmt.Errorf("OTP_HOURLY_MAX: want a positive number, got %q", v)
+		}
+		cfg.OTPHourlyMax = n
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -104,10 +130,47 @@ func run(log *slog.Logger) error {
 	} else {
 		log.Info("telebirr top-ups disabled: merchant credentials not configured")
 	}
+	notifier := &notify.Service{Pool: pool, Log: log}
+	if f := os.Getenv("FCM_SERVICE_ACCOUNT_FILE"); f != "" {
+		key, err := os.ReadFile(f)
+		if err != nil {
+			return fmt.Errorf("FCM_SERVICE_ACCOUNT_FILE: %w", err)
+		}
+		fcm, err := notify.NewFCM(key)
+		if err != nil {
+			return err
+		}
+		notifier.Pusher = fcm
+		log.Info("push notifications enabled", "firebase_project", fcm.ProjectID)
+	} else {
+		log.Info("push notifications disabled: FCM_SERVICE_ACCOUNT_FILE not set; notifications show in the app only")
+	}
+	relay := &outbox.Relay{Pool: pool, Log: log}
+	if b := os.Getenv("KAFKA_BROKERS"); b != "" {
+		brokers := strings.Split(b, ",")
+		producer, err := outbox.NewKafkaClient(brokers)
+		if err != nil {
+			return err
+		}
+		defer producer.Close()
+		consumer, err := outbox.NewKafkaConsumer(brokers, "notify", notify.Topics)
+		if err != nil {
+			return err
+		}
+		defer consumer.Close()
+		relay.Publisher = outbox.Kafka{Client: producer}
+		go func() { _ = outbox.Consume(ctx, consumer, notifier, log) }()
+		log.Info("outbox relay publishing to Kafka", "brokers", brokers)
+	} else {
+		relay.Publisher = outbox.Direct{Handlers: []outbox.Handler{notifier}}
+		log.Info("outbox relay delivering in-process (KAFKA_BROKERS not set)")
+	}
+	go relay.Run(ctx)
+
 	srv := &http.Server{
 		Addr: addr,
 		Handler: (&httpapi.Server{
-			Pool: pool, Ledger: l, Payments: svc, Identity: ids, Auth: ids, Log: log,
+			Pool: pool, Ledger: l, Payments: svc, Identity: ids, Auth: ids, Log: log, Notify: notifier,
 			Webhooks: webhooks, Sandbox: true, ClientIPHeader: os.Getenv("CLIENT_IP_HEADER"),
 		}).Routes(),
 		ReadHeaderTimeout: 5 * time.Second,

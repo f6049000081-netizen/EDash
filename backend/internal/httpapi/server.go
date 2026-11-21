@@ -15,6 +15,7 @@ import (
 	"superapp/backend/internal/identity"
 	"superapp/backend/internal/ledger"
 	"superapp/backend/internal/money"
+	"superapp/backend/internal/notify"
 	"superapp/backend/internal/payments"
 	"superapp/backend/internal/platform"
 )
@@ -24,6 +25,7 @@ type Server struct {
 	Ledger   *ledger.Ledger
 	Payments *payments.Service
 	Identity *identity.Service
+	Notify   *notify.Service        // nil: no notification endpoints
 	Auth     platform.Authenticator // normally Identity; tests may substitute their own
 	Log      *slog.Logger
 	Sandbox  bool // enables POST /v1/sandbox/topups
@@ -60,6 +62,12 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /v1/webhooks/rails/{rail}", s.railNotification)
 	mux.Handle("GET /v1/wallet/balances", authed(s.getBalances))
 	mux.Handle("GET /v1/activity", authed(s.listActivity))
+	if s.Notify != nil {
+		mux.Handle("GET /v1/notifications", authed(s.listNotifications))
+		mux.Handle("POST /v1/notifications/read", authed(s.markNotificationsRead))
+		mux.Handle("PUT /v1/devices/current/push-token", authed(s.putPushToken))
+		mux.Handle("DELETE /v1/devices/current/push-token", authed(s.deletePushToken))
+	}
 	mux.Handle("POST /v1/qr/resolve", authed(s.resolveQR))
 	mux.Handle("POST /v1/payment-intents", mutating(s.createIntent))
 	mux.Handle("GET /v1/payment-intents/{id}", authed(s.getIntent))

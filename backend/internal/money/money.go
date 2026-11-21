@@ -5,6 +5,8 @@ package money
 import (
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 )
 
 type Currency string
@@ -59,6 +61,24 @@ func (m Money) String() string {
 		sign, a = "-", -a
 	}
 	return fmt.Sprintf("%s %s%d.%02d", m.Currency, sign, a/100, a%100)
+}
+
+// Display formats an amount for people, as the app does: "ETB 1,250.00".
+func (m Money) Display() string {
+	sign := ""
+	a := m.AmountMinor
+	if a < 0 {
+		sign, a = "-", -a
+	}
+	whole := strconv.FormatInt(a/100, 10)
+	var b strings.Builder
+	for i, r := range whole {
+		if i > 0 && (len(whole)-i)%3 == 0 {
+			b.WriteByte(',')
+		}
+		b.WriteRune(r)
+	}
+	return fmt.Sprintf("%s %s%s.%02d", m.Currency, sign, b.String(), a%100)
 }
 
 // MaxAmountMinor caps a single amount (10 billion ETB) so basis-point maths can't overflow int64.

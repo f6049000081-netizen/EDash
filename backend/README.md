@@ -1,4 +1,4 @@
-# Backend: sign-in, ledger, payments and top-ups
+# Backend: sign-in, ledger, payments, top-ups and notifications
 
 This is the Go service behind the auth, profile, wallet and payment endpoints in `../api/openapi.yaml`. It runs against `../db/schema.sql`.
 
@@ -11,6 +11,8 @@ internal/ledger/      double-entry posting, balances, account rules
 internal/payments/    intents, QR resolution, risk rules, confirm flow, partner top-ups, sandbox top-up
 internal/rails/telebirr/  telebirr merchant API: signing, checkout, queryOrder, notification checks
 internal/recon/       statement import and matching
+internal/outbox/      outbox relay: publishes events in order to Kafka, or in-process without Kafka
+internal/notify/      notifications from events, the in-app list, push tokens, Firebase (FCM) sending
 internal/platform/    principal, PIN hashing and lockout, idempotency middleware, outbox, problem errors
 internal/httpapi/     routes and JSON mapping
 ```
@@ -71,6 +73,21 @@ QR payments split the amount three ways: debit the payer, credit the merchant se
   - Paging uses an opaque cursor over (created_at, id), with two index-backed queries merged.
 - **`PATCH /v1/me`:** display name (whitespace collapsed, up to 60 characters, no control characters), email (unique regardless of case; empty removes it) and language.
 
+## Notifications
+
+- **Outbox relay** (`internal/outbox`). Services write events into `platform.outbox` in the same transaction as the change. The relay reads unpublished rows in id order, publishes them and marks the delivered prefix. A failure part-way through leaves the rest for the next round, so order is kept and nothing is lost. Delivery is at least once.
+  - With `KAFKA_BROKERS` set, it publishes to Kafka (keyed by aggregate, so one payment's events stay in order) and the notifications service consumes as group `notify`, committing offsets only after handling.
+  - Without it (the dev server), events go straight to the notifications service in the same process.
+  - A PostgreSQL advisory lock keeps it to one relay at a time across API instances.
+- **What creates a notification** (`internal/notify`):
+  - The payee of a successful transfer: "Money received".
+  - The payer, only when the outcome came after they left the confirm screen: a top-up decided by the partner, or a payment that was `processing` or `held_for_review`. Results shown on screen aren't repeated.
+  - Security alerts: sign-in on a new device (not the account's first), PIN reset, PIN changed, and a session ended because a refresh token was reused.
+- **Text** is written in the user's language when the event happens: English and Amharic, with Afaan Oromo and Tigrinya falling back to English until translated. Amounts read "ETB 1,250.00".
+- **Repeats are harmless:** one notification per (user, outbox event, kind).
+- **Endpoints:** `GET /v1/notifications` (cursor paging, unread count), `POST /v1/notifications/read`, `PUT` and `DELETE /v1/devices/current/push-token`.
+- **Push** goes through Firebase Cloud Messaging (HTTP v1) and is off until `FCM_SERVICE_ACCOUNT_FILE` points at a Firebase service-account key. Without it, notifications show in the app only. Pushes go only to devices that still have a live session, so a device signed out by a PIN reset stops getting them; signing out removes the token, and tokens Firebase reports as gone are deleted.
+
 ## How a telebirr top-up works
 
 1. **Start it.** `POST /v1/topups` with `{"rail": "telebirr", "amount": ...}`:
@@ -120,6 +137,7 @@ Before going live, check these against the spec and test keys that come with the
   - Sign-in, tokens, sessions and PIN management.
   - The ledger, balance rules and concurrency control.
   - PIN lockout, idempotency, risk holds and outbox events.
+  - Outbox relay (Kafka or in-process) and in-app notifications. Push to phones needs a Firebase project.
   - telebirr top-ups, notification checks and reconciliation. These are switched off until telebirr merchant credentials are configured (`TELEBIRR_*`; see `cmd/api/main.go`). Without them, `POST /v1/topups` answers `rail_unavailable`. Setting the credentials from telebirr's developer portal connects to telebirr's own test environment. Nothing is simulated on our side.
 - **Sandbox only** (`APP_ENV=dev`, the only mode the server starts in for now):
   - **SMS:** codes are written to the server log instead of being sent.
@@ -210,7 +228,8 @@ curl -X POST localhost:8080/v1/auth/otp/verify -H 'Content-Type: application/jso
 - **Start it:** `./run-dev.sh` builds the API and runs it in the `g1api` container on port 8080. It uses the `g1dev` database in `g1db`, separate from the test database.
 - **Settings:** they come from `backend/.env`, which git ignores. It holds `APP_ENV=dev`, `DATABASE_URL=postgres://postgres:test@g1db:5432/g1dev` and two random base64 32-byte keys, `AUTH_SIGNING_KEY` and `OTP_HMAC_KEY`. Keeping the keys there means sessions survive restarts.
 - **First time:** create the database with `CREATE DATABASE g1dev`, then load `db/schema.sql` into it.
-- **Sign-in codes:** they aren't sent in dev. Read them with `docker logs -f g1api 2>&1 | grep "dev sms"`.
+- **Sign-in codes:** they aren't sent in dev. Read them with `docker logs -f g1api 2>&1 | grep "dev sms"`. The dev `.env` also sets `OTP_RESEND_SECONDS=60` and `OTP_HOURLY_MAX=1000`, so testers aren't locked out by the production throttle (5 codes per number per hour).
+- **Kafka (optional):** to run the relay through Kafka instead of in-process, start a broker on `g1net` (see `internal/outbox/relay_test.go` for a single-node `apache/kafka-native:3.8.0` setup) and add `KAFKA_BROKERS=g1kafka:9092` to `.env`. The Kafka test runs when `TEST_KAFKA_BROKERS` is set.
 - **Test money:** `./dev-topup.sh +2519XXXXXXXX 500 ["Name"]` adds sandbox money to that number, creating the account if needed. The money is recorded under its own `sandbox` source and shows in activity as "Test money (sandbox)", never as a real provider. The endpoint exists only on the dev server.
 - **Phones:** a phone reaches the API at the PC's address on the local network, so build the app with that address in `API_BASE_URL`. On a network Windows marks as Public, inbound port 8080 may need a firewall rule.
 
@@ -226,7 +245,8 @@ curl -X POST localhost:8080/v1/auth/otp/verify -H 'Content-Type: application/jso
 - **Fraud review** of the allowed country prefixes. `+1` also reaches Caribbean numbers that SMS-pumping fraud often targets.
 - **Limit values:** compliance fills `identity.kyc_limits`; then switch on `LimitsRequired`.
 - **Payee lookup throttling:** `payee_phone` shows the recipient's verified name before the PIN (as the design requires), which also lets someone check which numbers have accounts. Rate-limit lookups per user and per device, and flag accounts that create many unconfirmed intents.
-- **Outbox relay** to Kafka.
+- **Push to phones:** create the Firebase project, set `FCM_SERVICE_ACCOUNT_FILE`, and add the Firebase SDK and `google-services.json` to the app so it registers its token.
+- **Notification translations:** Afaan Oromo and Tigrinya text, and a native-speaker check of the Amharic.
 - **telebirr go-live:**
   - Confirm the points under "telebirr details still to confirm" with the merchant agreement.
   - Map telebirr's statement file to the recon CSV and schedule the daily run.

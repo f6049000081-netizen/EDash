@@ -27,6 +27,10 @@ class S {
 
   static const _strings = <String, Map<String, String>>{
     'en': {
+      'notifications': 'Notifications',
+      'notifications_unread': '{n} unread',
+      'notifications_empty':
+          'Nothing yet. We\'ll tell you here when money arrives, when a payment finishes, and when someone signs in to your account.',
       'app_name': 'Gebeya One',
       'welcome_title': 'Pay, send and top up, all in one place',
       'welcome_body': 'Sign in with your phone number. We send you a code by SMS.',
@@ -138,6 +142,9 @@ class S {
       'retry': 'Retry',
     },
     'am': {
+      'notifications': 'ማሳወቂያዎች',
+      'notifications_unread': '{n} ያልተነበቡ',
+      'notifications_empty': 'እስካሁን ምንም የለም። ገንዘብ ሲደርስዎ፣ ክፍያ ሲጠናቀቅ እና አንድ ሰው ወደ ሂሳብዎ ሲገባ እዚህ እናሳውቅዎታለን።',
       'app_name': 'ገበያ ዋን',
       'welcome_title': 'ይክፈሉ፣ ይላኩ፣ ገንዘብ ይሙሉ፤ ሁሉም በአንድ ቦታ',
       'welcome_body': 'በስልክ ቁጥርዎ ይግቡ። ኮድ በኤስኤምኤስ እንልክልዎታለን።',
@@ -247,6 +254,7 @@ class S {
       'retry': 'እንደገና ሞክር',
     },
     'om': {
+      'notifications': 'Beeksisa',
       'app_name': 'Gebeya One',
       'welcome_title': 'Kaffalaa, ergaa fi maallaqa guutaa, bakka tokkotti',
       'welcome_body': 'Lakkoofsa bilbilaa keessaniin seenaa. Koodii SMS-n isiniif ergina.',
@@ -298,6 +306,7 @@ class S {
       'save': 'Olkaa\'i',
     },
     'ti': {
+      'notifications': 'መፍለጢ',
       'app_name': 'ገበያ ዋን',
       'welcome_title': 'ክፈሉ፣ ስደዱ፣ ገንዘብ ምልኡ፤ ኩሉ ኣብ ሓደ ቦታ',
       'welcome_body': 'ብቑጽሪ ተሌፎንኩም እተዉ። ኮድ ብኤስኤምኤስ ክንልእከልኩም ኢና።',

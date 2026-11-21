@@ -16,6 +16,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 
@@ -25,6 +26,8 @@ import (
 	"superapp/backend/internal/httpapi"
 	"superapp/backend/internal/identity"
 	"superapp/backend/internal/ledger"
+	"superapp/backend/internal/notify"
+	"superapp/backend/internal/outbox"
 	"superapp/backend/internal/payments"
 	"superapp/backend/internal/platform"
 )
@@ -100,8 +103,9 @@ func TestEndToEndSignInAndPay(t *testing.T) {
 	rules := payments.DefaultRules()
 	rules.VelocityMax = 0
 	pay := payments.NewService(pool, l, rules, &platform.PINVerifier{Pool: pool})
+	notifier := &notify.Service{Pool: pool, Log: log}
 	srv := httptest.NewServer((&httpapi.Server{
-		Pool: pool, Ledger: l, Payments: pay, Identity: ids, Auth: ids, Log: log, Sandbox: true,
+		Pool: pool, Ledger: l, Payments: pay, Identity: ids, Auth: ids, Log: log, Sandbox: true, Notify: notifier,
 	}).Routes())
 	defer srv.Close()
 
@@ -213,6 +217,46 @@ func TestEndToEndSignInAndPay(t *testing.T) {
 	_, bobFeed := bob.do("GET", "/v1/activity", nil, false)
 	if bi, _ := bobFeed["items"].([]any); len(bi) != 1 || bi[0].(map[string]any)["title"] != "Alice Tadesse" {
 		t.Errorf("bob's feed should name the sender: %v", bobFeed)
+	}
+
+	// Notifications: the outbox relay hands events to the notifications service (in-process here, as on
+	// the dev server). Other packages' tests add outbox rows meanwhile, so run it until Bob's shows up.
+	relay := &outbox.Relay{Pool: pool, Publisher: outbox.Direct{Handlers: []outbox.Handler{notifier}}}
+	var bobNotes map[string]any
+	for i := 0; i < 200; i++ {
+		if _, err := relay.RunOnce(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		_, bobNotes = bob.do("GET", "/v1/notifications", nil, false)
+		if n, _ := bobNotes["items"].([]any); len(n) > 0 {
+			break
+		}
+	}
+	bn, _ := bobNotes["items"].([]any)
+	if len(bn) != 1 || bn[0].(map[string]any)["kind"] != "money_received" || bobNotes["unread"] != float64(1) {
+		t.Fatalf("bob's notifications: %v", bobNotes)
+	}
+	for i := 0; i < 50; i++ { // drain the rest, so Alice's alerts are in
+		if n, err := relay.RunOnce(context.Background()); err != nil || n == 0 {
+			break
+		}
+	}
+	_, aliceNotes := alice.do("GET", "/v1/notifications", nil, false)
+	var kinds []string
+	for _, n := range aliceNotes["items"].([]any) {
+		kinds = append(kinds, n.(map[string]any)["kind"].(string))
+	}
+	if strings.Join(kinds, ",") != "pin_reset,new_device" {
+		t.Errorf("alice's alerts: %v", kinds)
+	}
+	if st, p := bob.do("POST", "/v1/notifications/read", map[string]any{"all": true}, false); st != http.StatusOK || p["updated"] != float64(1) {
+		t.Errorf("mark read: %d %v", st, p)
+	}
+	if st, p := bob.do("POST", "/v1/notifications/read", map[string]any{}, false); st != http.StatusUnprocessableEntity {
+		t.Errorf("mark read with nothing: %d %v", st, p)
+	}
+	if st, p := alice.do("PUT", "/v1/devices/current/push-token", map[string]any{"token": "fcm-" + phone()}, false); st != http.StatusNoContent {
+		t.Errorf("push token: %d %v", st, p)
 	}
 
 	// Refresh and logout over HTTP.

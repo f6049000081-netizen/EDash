@@ -60,7 +60,27 @@ void main() {
   });
 
   testWidgets('home shows balance and recent activity; failed outgoing items are marked', (tester) async {
+    var markedRead = false;
     final state = appWith((r) async => switch (r.url.path) {
+          '/v1/notifications' => json({
+              'items': [
+                {
+                  'id': 'n1',
+                  'kind': 'money_received',
+                  'title': 'Money received',
+                  'body': 'Abebe sent you ETB 150.00.',
+                  'data': {'intent_id': 'i1'},
+                  'created_at': DateTime.now().toUtc().toIso8601String(),
+                  'read': false,
+                },
+              ],
+              'next_cursor': null,
+              'unread': markedRead ? 0 : 1,
+            }),
+          '/v1/notifications/read' => () {
+              markedRead = true;
+              return json({'updated': 1});
+            }(),
           '/v1/auth/token/refresh' =>
             json({'access_token': 'a', 'refresh_token': 'r2', 'user_id': 'u1', 'expires_in': 900}),
           '/v1/me' => json({
@@ -119,5 +139,12 @@ void main() {
     await tester.tap(find.byTooltip('Hide balance'));
     await tester.pump();
     expect(find.text('ETB 24,580.00'), findsNothing);
+
+    // The bell shows the unread count; opening the list marks it read.
+    await tester.tap(find.byTooltip('Notifications, 1 unread'));
+    await tester.pumpAndSettle();
+    expect(find.text('Abebe sent you ETB 150.00.'), findsOneWidget);
+    expect(markedRead, isTrue);
+    expect(state.unreadNotifications, 0);
   });
 }
