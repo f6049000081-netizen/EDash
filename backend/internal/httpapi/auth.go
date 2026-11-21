@@ -40,18 +40,17 @@ func (s *Server) verifyOTP(w http.ResponseWriter, r *http.Request) {
 		ChallengeID uuid.UUID `json:"challenge_id"`
 		Code        string    `json:"code"`
 		Device      struct {
-			Platform           string `json:"platform"`
-			Model              string `json:"model"`
-			Attestation        string `json:"attestation"`
-			BiometricPublicKey string `json:"biometric_public_key"`
+			Platform    string `json:"platform"`
+			Model       string `json:"model"`
+			Attestation string `json:"attestation"`
 		} `json:"device"`
 	}
 	if !decode(w, r, &body) {
 		return
 	}
 	sess, err := s.Identity.VerifyOTP(r.Context(), body.ChallengeID, body.Code, identity.DeviceInfo{
-		Platform: body.Device.Platform, Model: body.Device.Model,
-		Attestation: body.Device.Attestation, BiometricPublicKey: body.Device.BiometricPublicKey,
+		Platform: body.Device.Platform, Model: body.Device.Model, Attestation: body.Device.Attestation,
+		DPoP: s.Identity.ProofFrom(r),
 	})
 	if err != nil {
 		s.failAuth(w, err)
@@ -67,7 +66,7 @@ func (s *Server) refreshToken(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	sess, err := s.Identity.Refresh(r.Context(), body.RefreshToken)
+	sess, err := s.Identity.Refresh(r.Context(), body.RefreshToken, s.Identity.ProofFrom(r))
 	if err != nil {
 		s.failAuth(w, err)
 		return
@@ -160,8 +159,12 @@ func (s *Server) writeProfile(w http.ResponseWriter, r *http.Request, p *identit
 
 func writeSession(w http.ResponseWriter, s *identity.Session) {
 	w.Header().Set("Cache-Control", "no-store")
+	tokenType := "Bearer"
+	if s.DPoPBound {
+		tokenType = "DPoP"
+	}
 	platform.WriteJSON(w, http.StatusOK, map[string]any{
-		"access_token": s.AccessToken, "refresh_token": s.RefreshToken, "token_type": "Bearer",
+		"access_token": s.AccessToken, "refresh_token": s.RefreshToken, "token_type": tokenType,
 		"expires_in": s.ExpiresIn, "user_id": s.UserID, "needs_pin": s.NeedsPIN,
 	})
 }
@@ -215,6 +218,10 @@ func (s *Server) failAuth(w http.ResponseWriter, err error) {
 	case errors.Is(err, identity.ErrEmailInUse):
 		p = platform.NewProblem(http.StatusConflict, "validation_failed", "Email already used",
 			"That email belongs to another account.")
+	case errors.Is(err, identity.ErrDPoP):
+		w.Header().Set("WWW-Authenticate", `DPoP algs="ES256", error="invalid_dpop_proof"`)
+		p = platform.NewProblem(http.StatusUnauthorized, "invalid_dpop_proof", "Device key check failed",
+			"This request wasn't signed by the device key for this session. Sign in again on this device.")
 	case errors.Is(err, identity.ErrSMSUnavailable):
 		p = platform.NewProblem(http.StatusServiceUnavailable, "sms_unavailable", "Couldn't send the code", "Please try again in a minute.")
 	default:
@@ -222,4 +229,28 @@ func (s *Server) failAuth(w http.ResponseWriter, err error) {
 		return
 	}
 	platform.WriteProblem(w, p)
+}
+
+// putBiometricKey turns on biometric confirmation for this device. The PIN is required.
+func (s *Server) putBiometricKey(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		PublicKey string `json:"public_key"`
+		PIN       string `json:"pin"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	if err := s.Identity.EnrollBiometric(r.Context(), platform.PrincipalFrom(r.Context()), body.PublicKey, body.PIN); err != nil {
+		s.failAuth(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) deleteBiometricKey(w http.ResponseWriter, r *http.Request) {
+	if err := s.Identity.RemoveBiometric(r.Context(), platform.PrincipalFrom(r.Context())); err != nil {
+		s.failAuth(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

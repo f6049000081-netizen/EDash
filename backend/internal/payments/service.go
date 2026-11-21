@@ -16,9 +16,31 @@ import (
 	"superapp/backend/internal/platform"
 )
 
-// PresenceVerifier proves the payer is present (PIN now; device biometric signatures later).
+// PresenceVerifier checks the payer's PIN.
 type PresenceVerifier interface {
 	Verify(ctx context.Context, userID uuid.UUID, pin string) error
+}
+
+// BiometricVerifier checks a signature from the calling device's biometric-gated key over msg.
+type BiometricVerifier interface {
+	Verify(ctx context.Context, userID, deviceID uuid.UUID, msg []byte, signature string) error
+}
+
+// Proof is how the payer shows they are present when confirming: their PIN, or a signature over
+// ConfirmMessage from the biometric key of the device they are using.
+type Proof struct {
+	PIN                string
+	DeviceID           uuid.UUID
+	BiometricSignature string
+}
+
+// ConfirmMessage is what the app signs with its biometric key to confirm an intent. It names the
+// intent, what the payer is charged and who gets it, so the signature is a record of what the user
+// approved. The API hands it out as confirm_challenge; the app shows the same intent and signs these
+// bytes exactly.
+func ConfirmMessage(in *Intent) []byte {
+	return []byte(fmt.Sprintf("gebeya-one/confirm/v1\nintent:%s\namount:%d %s\nfee:%d %s\npayee:%s:%s\n",
+		in.ID, in.Amount.AmountMinor, in.Amount.Currency, in.FeeMinor, in.Amount.Currency, in.PayeeType, in.PayeeID))
 }
 
 type Service struct {
@@ -26,6 +48,8 @@ type Service struct {
 	Ledger   *ledger.Ledger
 	Risk     RiskEngine
 	Presence PresenceVerifier
+	// Biometric checks biometric confirmations. Nil: only the PIN is accepted.
+	Biometric BiometricVerifier
 
 	// DefaultMerchantBps applies when a merchant has no commission plan. 50 = 0.5%.
 	DefaultMerchantBps int64
@@ -199,6 +223,11 @@ func (s *Service) ResolveQR(ctx context.Context, payload string) (*ResolvedQR, e
 // Confirming an intent that already finished returns it unchanged, so client retries are safe.
 // When funds are short it returns the failed intent together with ErrInsufficientFunds.
 func (s *Service) Confirm(ctx context.Context, payerID, intentID uuid.UUID, pin string) (*Intent, error) {
+	return s.ConfirmWith(ctx, payerID, intentID, Proof{PIN: pin})
+}
+
+// ConfirmWith is Confirm with either proof of presence.
+func (s *Service) ConfirmWith(ctx context.Context, payerID, intentID uuid.UUID, proof Proof) (*Intent, error) {
 	in, err := s.Get(ctx, payerID, intentID)
 	if err != nil {
 		return nil, err
@@ -206,7 +235,14 @@ func (s *Service) Confirm(ctx context.Context, payerID, intentID uuid.UUID, pin 
 	if in.Status != StatusRequiresConfirmation {
 		return in, nil
 	}
-	if err := s.Presence.Verify(ctx, payerID, pin); err != nil {
+	if proof.BiometricSignature != "" {
+		if s.Biometric == nil {
+			return nil, platform.ErrBiometricNotEnrolled
+		}
+		if err := s.Biometric.Verify(ctx, payerID, proof.DeviceID, ConfirmMessage(in), proof.BiometricSignature); err != nil {
+			return nil, err
+		}
+	} else if err := s.Presence.Verify(ctx, payerID, proof.PIN); err != nil {
 		return nil, err
 	}
 

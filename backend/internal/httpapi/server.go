@@ -2,6 +2,7 @@
 package httpapi
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -55,6 +56,8 @@ func (s *Server) Routes() http.Handler {
 		mux.HandleFunc("POST /v1/auth/token/refresh", s.refreshToken)
 		mux.Handle("POST /v1/auth/logout", authed(s.logout))
 		mux.Handle("PUT /v1/auth/pin", mutating(s.setPIN))
+		mux.Handle("PUT /v1/devices/current/biometric-key", authed(s.putBiometricKey))
+		mux.Handle("DELETE /v1/devices/current/biometric-key", authed(s.deleteBiometricKey))
 		mux.Handle("GET /v1/me", authed(s.getMe))
 		mux.Handle("PATCH /v1/me", authed(s.updateMe))
 	}
@@ -209,12 +212,15 @@ func (s *Server) confirmIntent(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	if body.BiometricSignature != "" {
-		platform.WriteProblem(w, platform.NewProblem(http.StatusBadRequest, "validation_failed", "Not supported yet",
-			"Biometric confirmation isn't available yet. Use your PIN."))
+	if body.BiometricSignature != "" && body.PIN != "" {
+		platform.WriteProblem(w, platform.NewProblem(http.StatusUnprocessableEntity, "validation_failed", "Check the details",
+			"Send the PIN or the biometric signature, not both."))
 		return
 	}
-	in, err := s.Payments.Confirm(r.Context(), platform.UserFrom(r.Context()), id, body.PIN)
+	pr := platform.PrincipalFrom(r.Context())
+	in, err := s.Payments.ConfirmWith(r.Context(), pr.UserID, id, payments.Proof{
+		PIN: body.PIN, DeviceID: pr.DeviceID, BiometricSignature: body.BiometricSignature,
+	})
 	if err != nil {
 		s.fail(w, err)
 		return
@@ -263,15 +269,17 @@ type intentJSON struct {
 		DisplayName  string `json:"display_name"`
 		VerifiedName bool   `json:"verified_name"`
 	} `json:"payee"`
-	Amount       money.Money       `json:"amount"`
-	Fee          money.Money       `json:"fee"`
-	Total        money.Money       `json:"total"`
-	PointsToEarn int64             `json:"points_to_earn"`
-	Rail         string            `json:"rail"`
-	StepUp       string            `json:"step_up"`
-	Failure      *platform.Problem `json:"failure"`
-	ReceiptURL   *string           `json:"receipt_url"`
-	CreatedAt    time.Time         `json:"created_at"`
+	Amount       money.Money `json:"amount"`
+	Fee          money.Money `json:"fee"`
+	Total        money.Money `json:"total"`
+	PointsToEarn int64       `json:"points_to_earn"`
+	Rail         string      `json:"rail"`
+	StepUp       string      `json:"step_up"`
+	// ConfirmChallenge (base64) is what the biometric key signs to confirm; present while confirmable.
+	ConfirmChallenge *string           `json:"confirm_challenge,omitempty"`
+	Failure          *platform.Problem `json:"failure"`
+	ReceiptURL       *string           `json:"receipt_url"`
+	CreatedAt        time.Time         `json:"created_at"`
 }
 
 func present(in *payments.Intent) intentJSON {
@@ -283,6 +291,8 @@ func present(in *payments.Intent) intentJSON {
 	j.Payee.Type, j.Payee.DisplayName, j.Payee.VerifiedName = in.PayeeType, in.PayeeName, in.PayeeVerified
 	if in.Status == payments.StatusRequiresConfirmation {
 		j.StepUp = "biometric_or_pin"
+		c := base64.StdEncoding.EncodeToString(payments.ConfirmMessage(in))
+		j.ConfirmChallenge = &c
 	}
 	if in.FailureCode != "" {
 		j.Failure = platform.NewProblem(http.StatusPaymentRequired, in.FailureCode, "Payment failed", "").NotCharged()
@@ -334,6 +344,12 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 	case errors.Is(err, platform.ErrPINLocked):
 		p = platform.NewProblem(http.StatusForbidden, "pin_locked", "PIN locked",
 			"Too many wrong attempts. Try again in 30 minutes or reset your PIN.")
+	case errors.Is(err, platform.ErrBiometricNotEnrolled):
+		p = platform.NewProblem(http.StatusForbidden, "biometric_not_enrolled", "Use your PIN",
+			"Fingerprint or face confirmation isn't set up on this device. Confirm with your PIN.").NotCharged()
+	case errors.Is(err, platform.ErrBiometricInvalid):
+		p = platform.NewProblem(http.StatusForbidden, "biometric_failed", "Use your PIN",
+			"We couldn't check your fingerprint or face confirmation. Confirm with your PIN.").NotCharged()
 	case errors.Is(err, platform.ErrNoPIN):
 		p = platform.NewProblem(http.StatusForbidden, "step_up_required", "Set a PIN first", "")
 	default:

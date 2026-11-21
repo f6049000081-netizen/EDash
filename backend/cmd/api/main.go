@@ -9,6 +9,9 @@
 //	OTP_HMAC_KEY          base64 key (32+ bytes) for hashing one-time codes
 //	                      In dev, missing keys are generated at startup, so tokens stop working on restart.
 //	OTP_ALLOWED_PREFIXES  comma-separated E.164 prefixes codes may be sent to (default: Ethiopia + diaspora list)
+//	PUBLIC_BASE_URL       the API's URL as apps see it (e.g. https://api.example.et), for checking DPoP
+//	                      proofs behind a proxy. Unset: taken from the request's Host.
+//	DPOP_REQUIRED         "true": every sign-in must bind its session to a device key (DPoP).
 //	OTP_RESEND_SECONDS    minimum gap between sign-in codes to one number (default 30)
 //	OTP_HOURLY_MAX        sign-in codes per number per hour (default 5)
 //	CLIENT_IP_HEADER      header a trusted proxy sets with the client address, e.g. CF-Connecting-IP
@@ -82,6 +85,8 @@ func run(log *slog.Logger) error {
 		return err
 	}
 	cfg := identity.DefaultConfig()
+	cfg.PublicBaseURL = os.Getenv("PUBLIC_BASE_URL")
+	cfg.DPoPRequired = os.Getenv("DPOP_REQUIRED") == "true"
 	if v := os.Getenv("OTP_ALLOWED_PREFIXES"); v != "" {
 		cfg.AllowedPrefixes = strings.Split(v, ",")
 	}
@@ -117,6 +122,7 @@ func run(log *slog.Logger) error {
 	}
 	l := ledger.New()
 	svc := payments.NewService(pool, l, payments.DefaultRules(), &platform.PINVerifier{Pool: pool})
+	svc.Biometric = &platform.BiometricVerifier{Pool: pool}
 	webhooks := map[string]httpapi.NotificationVerifier{}
 	tb, err := telebirrClient()
 	if err != nil {

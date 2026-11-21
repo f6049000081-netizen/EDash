@@ -326,7 +326,7 @@ func TestRefreshRotationAndReuseDetection(t *testing.T) {
 	e := setup(t)
 	s1 := e.signIn(newPhone(), "signup", "d")
 
-	s2, err := e.svc.Refresh(e.ctx, s1.RefreshToken)
+	s2, err := e.svc.Refresh(e.ctx, s1.RefreshToken, identity.DPoPProof{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -336,17 +336,17 @@ func TestRefreshRotationAndReuseDetection(t *testing.T) {
 	e.principal(s2)
 
 	// The old refresh token turns up again: someone copied it. Everything in the family dies.
-	if _, err := e.svc.Refresh(e.ctx, s1.RefreshToken); !errors.Is(err, identity.ErrSessionInvalid) {
+	if _, err := e.svc.Refresh(e.ctx, s1.RefreshToken, identity.DPoPProof{}); !errors.Is(err, identity.ErrSessionInvalid) {
 		t.Fatalf("reused token: %v", err)
 	}
 	if _, err := e.auth(s2.AccessToken); err == nil {
 		t.Error("access token still valid after reuse detection")
 	}
-	if _, err := e.svc.Refresh(e.ctx, s2.RefreshToken); !errors.Is(err, identity.ErrSessionInvalid) {
+	if _, err := e.svc.Refresh(e.ctx, s2.RefreshToken, identity.DPoPProof{}); !errors.Is(err, identity.ErrSessionInvalid) {
 		t.Error("newest refresh token still valid after reuse detection")
 	}
 	for _, bad := range []string{"", "rt_nope", "garbage"} {
-		if _, err := e.svc.Refresh(e.ctx, bad); !errors.Is(err, identity.ErrSessionInvalid) {
+		if _, err := e.svc.Refresh(e.ctx, bad, identity.DPoPProof{}); !errors.Is(err, identity.ErrSessionInvalid) {
 			t.Errorf("refresh %q: %v", bad, err)
 		}
 	}
@@ -363,7 +363,7 @@ func TestLogoutEndsOnlyThatSession(t *testing.T) {
 	if _, err := e.auth(a.AccessToken); err == nil {
 		t.Error("access token works after logout")
 	}
-	if _, err := e.svc.Refresh(e.ctx, a.RefreshToken); err == nil {
+	if _, err := e.svc.Refresh(e.ctx, a.RefreshToken, identity.DPoPProof{}); err == nil {
 		t.Error("refresh works after logout")
 	}
 	e.principal(b) // the other device is unaffected

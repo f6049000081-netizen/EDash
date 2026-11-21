@@ -217,27 +217,30 @@ func TestSecurityAlerts(t *testing.T) {
 	signIn := func(dev uuid.UUID, platform string, isNew bool) outbox.Message {
 		return event("identity.signed_in", u, map[string]any{"user_id": u, "device_id": dev, "new_device": isNew, "platform": platform, "purpose": "login"})
 	}
-	e.handle(signIn(first, "android", true)) // signing up: not a warning
+	e.exec(`UPDATE identity.devices SET first_seen_at = now() - interval '1 day' WHERE id = $1`, first)
+	second := e.device(u, "ios")
+	// The sign-up event is handled late, after the second device exists: still not a warning.
+	e.handle(signIn(first, "android", true))
 	e.handle(signIn(first, "android", false))
 	if got := e.list(u); len(got) != 0 {
 		t.Fatalf("first device or a known device: %+v", got)
 	}
-	second := e.device(u, "ios")
 	e.handle(signIn(second, "ios", true))
 	e.handle(event("identity.pin_reset", u, map[string]any{"user_id": u, "device_id": second, "sessions_revoked": 1}))
 	e.handle(event("identity.refresh_token_reused", u, map[string]any{"user_id": u, "device_id": first}))
 	e.handle(event("identity.pin_set", u, map[string]any{"user_id": u, "device_id": first}))
+	e.handle(event("identity.biometric_enrolled", u, map[string]any{"user_id": u, "device_id": first}))
 
 	got := e.list(u)
 	kinds := []string{}
 	for _, n := range got {
 		kinds = append(kinds, n.Kind)
 	}
-	if strings.Join(kinds, ",") != "session_revoked,pin_reset,new_device" {
+	if strings.Join(kinds, ",") != "biometric_enrolled,session_revoked,pin_reset,new_device" {
 		t.Fatalf("kinds %v", kinds)
 	}
-	if got[2].Body != "Your account was signed in on a new iPhone device. If this wasn't you, reset your PIN now." {
-		t.Errorf("new device: %q", got[2].Body)
+	if got[3].Body != "Your account was signed in on a new iPhone device. If this wasn't you, reset your PIN now." {
+		t.Errorf("new device: %q", got[3].Body)
 	}
 }
 

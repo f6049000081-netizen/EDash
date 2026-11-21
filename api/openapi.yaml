@@ -304,7 +304,7 @@ paths:
         the unread count on the bell; push messages (when Firebase is configured) carry the same text.
         Kinds: `money_received`; for outcomes decided after the payer left the confirm screen,
         `payment_succeeded`, `payment_failed`, `topup_succeeded`, `topup_failed`, `topup_held`; and security
-        alerts `new_device`, `pin_reset`, `pin_changed`, `session_revoked`.
+        alerts `new_device`, `pin_reset`, `pin_changed`, `session_revoked`, `biometric_enrolled`.
       operationId: listNotifications
       parameters:
         - { $ref: '#/components/parameters/Cursor' }
@@ -345,6 +345,37 @@ paths:
             application/json:
               schema: { type: object, properties: { updated: { type: integer } } }
         '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/devices/current/biometric-key:
+    put:
+      tags: [Auth]
+      summary: Turn on fingerprint or face confirmation for payments on this device
+      description: |
+        The app creates a P-256 key in secure hardware that can only be used after the phone's biometric check,
+        and sends its public key here with the PIN (wrong PINs count toward the lockout). An SMS code alone can
+        never set this up. A PIN reset turns it off on every device. All the user's devices get a security notification.
+      operationId: putBiometricKey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [public_key, pin]
+              properties:
+                public_key: { type: string, description: 'Base64 DER SubjectPublicKeyInfo (Android) or uncompressed point (iOS).' }
+                pin: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '204': { description: Enrolled }
+        '403': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [Auth]
+      summary: Turn biometric confirmation off on this device
+      operationId: deleteBiometricKey
+      responses:
+        '204': { description: Removed }
+        '401': { $ref: '#/components/responses/Problem' }
 
   /v1/devices/current/push-token:
     put:
@@ -472,8 +503,10 @@ paths:
       tags: [Payments]
       summary: Confirm and execute the payment
       description: |
-        Requires proof of user presence: a signature from the device's biometric key over
-        `{intent_id, amount_minor, currency, payee}` or the user's PIN. The response is usually final
+        Requires proof of user presence: the PIN, or `biometric_signature`, an ECDSA P-256 / SHA-256 signature
+        (ASN.1 DER, base64) over the intent's `confirm_challenge` from this device's biometric key (registered with
+        `PUT /v1/devices/current/biometric-key`). A refused signature (`biometric_not_enrolled`, `biometric_failed`)
+        means: ask for the PIN instead. The response is usually final
         (`succeeded`). It can also be `processing` (the rail is slow; the final state arrives as a push notification) or `held_for_review`.
       operationId: confirmPaymentIntent
       parameters:
@@ -821,7 +854,14 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
-      description: Ed25519-signed JWT valid 15 minutes, checked against a live session on every request. Binding to the device key (DPoP) is planned but not enforced yet.
+      description: |
+        Ed25519-signed JWT valid 15 minutes, checked against a live session on every request.
+        DPoP (RFC 9449): when sign-in carries a `DPoP` proof, the session is bound to that device key
+        (`token_type: DPoP`). Then every request sends `Authorization: DPoP <token>` plus a fresh `DPoP` header:
+        an ES256 JWT with `typ: dpop+jwt`, the public `jwk` (P-256), and claims `jti`, `htm`, `htu`, `iat`
+        and `ath` (base64url SHA-256 of the access token). Each proof is accepted once and for 5 minutes.
+        Refreshing a bound session needs a proof from the same key. Unbound (bearer) sessions keep working
+        until the server sets DPOP_REQUIRED.
     staffToken:
       type: oauth2
       description: Staff sign in through the company identity provider with hardware MFA. Scopes map to admin.role_permissions.
@@ -913,13 +953,12 @@ components:
         platform: { type: string, enum: [android, ios, web] }
         model: { type: string }
         attestation: { type: string, description: Play Integrity or App Attest token. }
-        biometric_public_key: { type: string }
     Session:
       type: object
       properties:
         access_token: { type: string }
         refresh_token: { type: string }
-        token_type: { type: string, enum: [Bearer] }
+        token_type: { type: string, enum: [Bearer, DPoP], description: '`DPoP` when the sign-in carried a DPoP proof.' }
         expires_in: { type: integer, example: 900 }
         user_id: { type: string, format: uuid }
         needs_pin: { type: boolean }
@@ -985,6 +1024,11 @@ components:
         points_to_earn: { type: integer }
         rail: { $ref: '#/components/schemas/Rail' }
         step_up: { type: string, enum: [none, biometric_or_pin, otp], description: What confirm will require. }
+        confirm_challenge:
+          type: string
+          description: |
+            Present while the intent can be confirmed. Base64 of the exact bytes the device's biometric key signs:
+            "gebeya-one/confirm/v1\nintent:<id>\namount:<minor> <cur>\nfee:<minor> <cur>\npayee:<type>:<id>\n".
         failure: { oneOf: [ { $ref: '#/components/schemas/Problem' }, { type: 'null' } ] }
         receipt_url: { type: [string, 'null'], format: uri }
         created_at: { type: string, format: date-time }
@@ -1015,7 +1059,7 @@ components:
       required: [id, kind, title, body, data, created_at, read]
       properties:
         id: { type: string, format: uuid }
-        kind: { type: string, enum: [money_received, payment_succeeded, payment_failed, topup_succeeded, topup_failed, topup_held, new_device, pin_reset, pin_changed, session_revoked] }
+        kind: { type: string, enum: [money_received, payment_succeeded, payment_failed, topup_succeeded, topup_failed, topup_held, new_device, pin_reset, pin_changed, session_revoked, biometric_enrolled] }
         title: { type: string, example: Money received }
         body: { type: string, example: 'Abebe sent you ETB 150.00.' }
         data:

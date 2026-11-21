@@ -63,7 +63,8 @@ CREATE TABLE identity.devices (
     fingerprint_hash    TEXT NOT NULL,          -- hash of device attestation; raw signals live in risk
     platform            TEXT NOT NULL CHECK (platform IN ('android', 'ios', 'web')),
     model               TEXT,
-    biometric_key_pub   TEXT,                   -- public key; private key never leaves the device enclave
+    biometric_key_pub   TEXT,                   -- P-256 SPKI (base64 DER) of the device's biometric-gated key; set only with the PIN, cleared by a PIN reset
+    biometric_enrolled_at TIMESTAMPTZ,
     trusted             BOOLEAN NOT NULL DEFAULT FALSE,
     first_seen_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_seen_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -101,10 +102,20 @@ CREATE TABLE identity.sessions (
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     expires_at          TIMESTAMPTZ NOT NULL,
     revoked_at          TIMESTAMPTZ,            -- set on rotation, logout or family revocation
-    pin_reset_until     TIMESTAMPTZ             -- session came from a pin_reset code: may set a new PIN once, until this time
+    pin_reset_until     TIMESTAMPTZ,            -- session came from a pin_reset code: may set a new PIN once, until this time
+    dpop_jkt            TEXT                    -- RFC 7638 thumbprint of the device key the session is bound to (DPoP); NULL = bearer
 );
 CREATE INDEX ON identity.sessions (user_id) WHERE revoked_at IS NULL;
 CREATE INDEX ON identity.sessions (family_id);
+
+-- DPoP proofs already used, kept until they would be too old to pass anyway (replay protection).
+CREATE TABLE identity.dpop_proofs (
+    jkt         TEXT NOT NULL,
+    jti         TEXT NOT NULL,
+    expires_at  TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY (jkt, jti)
+);
+CREATE INDEX ON identity.dpop_proofs (expires_at);
 
 CREATE TABLE identity.kyc_verifications (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),

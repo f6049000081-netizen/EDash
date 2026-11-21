@@ -36,6 +36,12 @@ type Claims struct {
 	IssuedAt  int64     `json:"iat"`
 	ExpiresAt int64     `json:"exp"`
 	ID        uuid.UUID `json:"jti"`
+	// Confirmation binds the token to the device's DPoP key (RFC 9449 section 6). Absent: a bearer token.
+	Confirmation *Confirmation `json:"cnf,omitempty"`
+}
+
+type Confirmation struct {
+	JKT string `json:"jkt"`
 }
 
 type tokenHeader struct {

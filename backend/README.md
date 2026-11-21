@@ -73,6 +73,20 @@ QR payments split the amount three ways: debit the payer, credit the merchant se
   - Paging uses an opaque cursor over (created_at, id), with two index-backed queries merged.
 - **`PATCH /v1/me`:** display name (whitespace collapsed, up to 60 characters, no control characters), email (unique regardless of case; empty removes it) and language.
 
+## Device keys: DPoP and biometric confirmation
+
+- **DPoP** (RFC 9449, ES256 only, since that's what Android Keystore and the iOS Secure Enclave hold). The app keeps a key pair in secure hardware and signs a short proof for every request (method, URL, time, a one-time id, and the access token's hash).
+  - A sign-in carrying a proof binds the session to that key (`token_type: DPoP`, `cnf.jkt` in the token). From then on the token is useless without the key: as a bearer token, with another key, with a replayed or stale proof, or for another URL, it gets 401.
+  - Refreshing a bound session needs a proof from the same key. A refresh token stolen alone gets `invalid_dpop_proof`, and it doesn't sign the owner out.
+  - Sessions from app versions without DPoP keep working as bearer sessions; the first refresh with a proof binds them. Set `DPOP_REQUIRED=true` once every app in use sends proofs.
+  - Proof `htu` is checked against `PUBLIC_BASE_URL` + path, or against the request's own host when that isn't set. Set it when the API sits behind a proxy.
+  - Used proofs are kept in `identity.dpop_proofs` until they expire, so each is accepted once.
+- **Biometric confirmation.** A second key in secure hardware that only works after the phone's fingerprint or face check.
+  - Registered with `PUT /v1/devices/current/biometric-key` and the **PIN**. Sign-in no longer accepts a biometric key, because an SMS code alone (a SIM swap) must never set up a way to pay without the PIN.
+  - Confirming: the intent carries `confirm_challenge` (intent id, amount, fee and payee); the app signs those exact bytes and sends `biometric_signature`. The key works only for the device it was registered on.
+  - A PIN reset clears biometric keys on every device. Turning it on sends a security notification to all the user's devices.
+  - Refused signatures (`biometric_not_enrolled`, `biometric_failed`) tell the app to ask for the PIN.
+
 ## Notifications
 
 - **Outbox relay** (`internal/outbox`). Services write events into `platform.outbox` in the same transaction as the change. The relay reads unpublished rows in id order, publishes them and marks the delivered prefix. A failure part-way through leaves the rest for the next round, so order is kept and nothing is lost. Delivery is at least once.
@@ -239,7 +253,6 @@ curl -X POST localhost:8080/v1/auth/otp/verify -H 'Content-Type: application/jso
   - An SMS aggregator: Ethio Telecom, Safaricom Ethiopia, and an international route.
   - Play Integrity and App Attest verifiers.
   - Until these exist, the server won't start outside dev.
-- **DPoP:** bind access tokens to the device key, alongside biometric confirmation.
 - **Shared rate limiting:** the per-IP limiter lives in memory, so it should move to Redis once there's more than one API instance.
 - **Localisation:** Afaan Oromo and Tigrinya SMS text, plus a native-speaker review of the Amharic.
 - **Fraud review** of the allowed country prefixes. `+1` also reaches Caribbean numbers that SMS-pumping fraud often targets.
@@ -252,5 +265,6 @@ curl -X POST localhost:8080/v1/auth/otp/verify -H 'Content-Type: application/jso
   - Map telebirr's statement file to the recon CSV and schedule the daily run.
   - Add in-app checkout.
   - Show reconciliation exceptions in the admin console.
-- **Biometric confirmation:** verify device-key signatures.
+- **Device keys in the app:** the server side of DPoP and biometric confirmation is done; the app still has to create the hardware keys and send proofs. Then switch on `DPOP_REQUIRED`.
+- **Key attestation:** check Android key attestation and App Attest so the server knows the DPoP and biometric keys really live in secure hardware.
 - **Merchant payout batching**, and orders and bills in the activity feed once those modules exist.

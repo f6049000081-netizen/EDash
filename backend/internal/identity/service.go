@@ -44,6 +44,8 @@ type Config struct {
 	AccessTTL       time.Duration
 	RefreshTTL      time.Duration // idle lifetime; each refresh extends it
 	PINResetWindow  time.Duration // how long a pin_reset session may set a new PIN without the old one
+	DPoPRequired    bool          // refuse sign-ins and refreshes that don't bind the session to a device key
+	PublicBaseURL   string        // the API's URL as clients see it, for checking DPoP proofs behind a proxy
 }
 
 // DefaultPrefixes covers Ethiopia and the largest diaspora countries. It is a starting point for the
@@ -234,10 +236,12 @@ func (s *Service) RequestOTP(ctx context.Context, req OTPRequest) (*OTPChallenge
 }
 
 type DeviceInfo struct {
-	Platform           string
-	Model              string
-	Attestation        string
-	BiometricPublicKey string
+	Platform    string
+	Model       string
+	Attestation string
+	// DPoP binds the new session to the device's key. Biometric keys are not taken at sign-in: an SMS
+	// code alone must never be enough to set up a way to pay without the PIN (see EnrollBiometric).
+	DPoP DPoPProof
 }
 
 type Session struct {
@@ -246,6 +250,7 @@ type Session struct {
 	ExpiresIn    int
 	UserID       uuid.UUID
 	NeedsPIN     bool
+	DPoPBound    bool // token_type is "DPoP": send the token with "Authorization: DPoP" and a proof
 }
 
 func (s *Service) VerifyOTP(ctx context.Context, challengeID uuid.UUID, code string, dev DeviceInfo) (*Session, error) {
@@ -257,7 +262,7 @@ func (s *Service) VerifyOTP(ctx context.Context, challengeID uuid.UUID, code str
 	default:
 		return nil, &ValidationError{"device.platform must be android, ios or web"}
 	}
-	if len(dev.Model) > 100 || len(dev.BiometricPublicKey) > 1024 {
+	if len(dev.Model) > 100 {
 		return nil, &ValidationError{"device details are too long"}
 	}
 	att, err := s.Attest.Verify(ctx, dev.Platform, dev.Attestation, challengeID)
@@ -266,6 +271,10 @@ func (s *Service) VerifyOTP(ctx context.Context, challengeID uuid.UUID, code str
 	}
 
 	now := s.now()
+	jkt, err := s.bindKey(ctx, dev.DPoP, now)
+	if err != nil {
+		return nil, err
+	}
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -341,16 +350,15 @@ func (s *Service) VerifyOTP(ctx context.Context, challengeID uuid.UUID, code str
 	var deviceID uuid.UUID
 	var newDevice bool
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO identity.devices (id, user_id, fingerprint_hash, platform, model, biometric_key_pub, first_seen_at, last_seen_at)
-		VALUES ($1, $2, $3, $4, NULLIF($5, ''), NULLIF($6, ''), $7, $7)
+		INSERT INTO identity.devices (id, user_id, fingerprint_hash, platform, model, first_seen_at, last_seen_at)
+		VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6, $6)
 		ON CONFLICT (user_id, fingerprint_hash) DO UPDATE SET
 			platform = EXCLUDED.platform,
 			model = COALESCE(EXCLUDED.model, identity.devices.model),
-			biometric_key_pub = COALESCE(EXCLUDED.biometric_key_pub, identity.devices.biometric_key_pub),
 			last_seen_at = EXCLUDED.last_seen_at,
 			revoked_at = NULL
 		RETURNING id, (xmax = 0)`,
-		deviceRowID, userID, att.Fingerprint, dev.Platform, dev.Model, dev.BiometricPublicKey, now).Scan(&deviceID, &newDevice); err != nil {
+		deviceRowID, userID, att.Fingerprint, dev.Platform, dev.Model, now).Scan(&deviceID, &newDevice); err != nil {
 		return nil, err
 	}
 
@@ -363,7 +371,7 @@ func (s *Service) VerifyOTP(ctx context.Context, challengeID uuid.UUID, code str
 	if err != nil {
 		return nil, err
 	}
-	refresh, err := s.insertSession(ctx, tx, userID, deviceID, family, resetUntil, now)
+	refresh, err := s.insertSession(ctx, tx, userID, deviceID, family, resetUntil, jkt, now)
 	if err != nil {
 		return nil, err
 	}
@@ -380,7 +388,7 @@ func (s *Service) VerifyOTP(ctx context.Context, challengeID uuid.UUID, code str
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-	return s.session(userID, family, deviceID, refresh, !hasPIN, now)
+	return s.session(userID, family, deviceID, refresh, !hasPIN, jkt, now)
 }
 
 func (s *Service) prefixAllowed(phone string) bool {
@@ -411,7 +419,7 @@ func (s *Service) codeHash(id uuid.UUID, code string) string {
 // sessions
 // ---------------------------------------------------------------------------
 
-func (s *Service) insertSession(ctx context.Context, tx pgx.Tx, user, device, family uuid.UUID, resetUntil *time.Time, now time.Time) (string, error) {
+func (s *Service) insertSession(ctx context.Context, tx pgx.Tx, user, device, family uuid.UUID, resetUntil *time.Time, jkt string, now time.Time) (string, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err
@@ -422,9 +430,9 @@ func (s *Service) insertSession(ctx context.Context, tx pgx.Tx, user, device, fa
 		return "", err
 	}
 	_, err = tx.Exec(ctx, `
-		INSERT INTO identity.sessions (id, user_id, device_id, refresh_token_hash, family_id, created_at, expires_at, pin_reset_until)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-		id, user, device, hashRefresh(token), family, now, now.Add(s.Cfg.RefreshTTL), resetUntil)
+		INSERT INTO identity.sessions (id, user_id, device_id, refresh_token_hash, family_id, created_at, expires_at, pin_reset_until, dpop_jkt)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NULLIF($9, ''))`,
+		id, user, device, hashRefresh(token), family, now, now.Add(s.Cfg.RefreshTTL), resetUntil, jkt)
 	return token, err
 }
 
@@ -434,28 +442,54 @@ func hashRefresh(t string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func (s *Service) session(user, family, device uuid.UUID, refresh string, needsPIN bool, now time.Time) (*Session, error) {
+func (s *Service) session(user, family, device uuid.UUID, refresh string, needsPIN bool, jkt string, now time.Time) (*Session, error) {
 	jti, err := uuid.NewV7()
 	if err != nil {
 		return nil, err
 	}
-	access, err := s.Tokens.Sign(Claims{
+	c := Claims{
 		Issuer: tokenIssuer, Audience: tokenAudience, Subject: user, SessionID: family, DeviceID: device,
 		IssuedAt: now.Unix(), ExpiresAt: now.Add(s.Cfg.AccessTTL).Unix(), ID: jti,
-	})
+	}
+	if jkt != "" {
+		c.Confirmation = &Confirmation{JKT: jkt}
+	}
+	access, err := s.Tokens.Sign(c)
 	if err != nil {
 		return nil, err
 	}
-	return &Session{AccessToken: access, RefreshToken: refresh, ExpiresIn: int(s.Cfg.AccessTTL.Seconds()), UserID: user, NeedsPIN: needsPIN}, nil
+	return &Session{AccessToken: access, RefreshToken: refresh, ExpiresIn: int(s.Cfg.AccessTTL.Seconds()), UserID: user,
+		NeedsPIN: needsPIN, DPoPBound: jkt != ""}, nil
+}
+
+// bindKey checks the sign-in's DPoP proof, if any, and returns the key thumbprint to bind ("" for none).
+func (s *Service) bindKey(ctx context.Context, p DPoPProof, now time.Time) (string, error) {
+	if p.Header == "" {
+		if s.Cfg.DPoPRequired {
+			return "", ErrDPoP
+		}
+		return "", nil
+	}
+	return s.verifyDPoP(ctx, p, "", now)
 }
 
 // Refresh rotates a refresh token. Presenting a token that was already rotated means two parties hold
 // it, so the whole family is revoked and the user must sign in again with a code.
-func (s *Service) Refresh(ctx context.Context, token string) (*Session, error) {
+//
+// A session bound to a DPoP key needs a proof from that key to refresh. An unbound session (from an
+// app version before DPoP) is bound by the first refresh that carries a proof.
+func (s *Service) Refresh(ctx context.Context, token string, proof DPoPProof) (*Session, error) {
 	if !strings.HasPrefix(token, "rt_") || len(token) > 128 {
 		return nil, ErrSessionInvalid
 	}
 	now := s.now()
+	var jkt string
+	if proof.Header != "" {
+		var err error
+		if jkt, err = s.verifyDPoP(ctx, proof, "", now); err != nil {
+			return nil, err
+		}
+	}
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -465,10 +499,11 @@ func (s *Service) Refresh(ctx context.Context, token string) (*Session, error) {
 	var id, user, device, family uuid.UUID
 	var expires time.Time
 	var revoked, resetUntil *time.Time
+	var boundJKT *string
 	err = tx.QueryRow(ctx, `
-		SELECT id, user_id, device_id, family_id, expires_at, revoked_at, pin_reset_until
+		SELECT id, user_id, device_id, family_id, expires_at, revoked_at, pin_reset_until, dpop_jkt
 		FROM identity.sessions WHERE refresh_token_hash = $1 FOR UPDATE`, hashRefresh(token)).
-		Scan(&id, &user, &device, &family, &expires, &revoked, &resetUntil)
+		Scan(&id, &user, &device, &family, &expires, &revoked, &resetUntil, &boundJKT)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrSessionInvalid
 	}
@@ -495,6 +530,14 @@ func (s *Service) Refresh(ctx context.Context, token string) (*Session, error) {
 	if !now.Before(expires) {
 		return nil, ErrSessionInvalid
 	}
+	switch {
+	case boundJKT != nil && *boundJKT != jkt:
+		// A stolen refresh token without the device key. Don't revoke: that would let anyone who saw
+		// the token sign the real user out.
+		return nil, ErrDPoP
+	case boundJKT == nil && jkt == "" && s.Cfg.DPoPRequired:
+		return nil, ErrDPoP
+	}
 	var status string
 	var deviceRevoked *time.Time
 	if err := tx.QueryRow(ctx, `
@@ -518,7 +561,7 @@ func (s *Service) Refresh(ctx context.Context, token string) (*Session, error) {
 	if _, err := tx.Exec(ctx, `UPDATE identity.devices SET last_seen_at = $2 WHERE id = $1`, device, now); err != nil {
 		return nil, err
 	}
-	refresh, err := s.insertSession(ctx, tx, user, device, family, resetUntil, now)
+	refresh, err := s.insertSession(ctx, tx, user, device, family, resetUntil, jkt, now)
 	if err != nil {
 		return nil, err
 	}
@@ -529,7 +572,7 @@ func (s *Service) Refresh(ctx context.Context, token string) (*Session, error) {
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-	return s.session(user, family, device, refresh, !hasPIN, now)
+	return s.session(user, family, device, refresh, !hasPIN, jkt, now)
 }
 
 func (s *Service) revokeFamily(ctx context.Context, db platform.DB, family uuid.UUID, now time.Time) (int64, error) {
@@ -545,15 +588,35 @@ func (s *Service) Logout(ctx context.Context, p platform.Principal) error {
 	return err
 }
 
-// Authenticate implements platform.Authenticator for "Authorization: Bearer <access token>".
+// Authenticate implements platform.Authenticator. A DPoP-bound token must come as
+// "Authorization: DPoP <token>" with a fresh proof from the bound key; an unbound one as "Bearer".
 func (s *Service) Authenticate(r *http.Request) (platform.Principal, error) {
-	tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-	if !ok {
+	auth := r.Header.Get("Authorization")
+	tok, dpop := strings.CutPrefix(auth, "DPoP ")
+	if !dpop {
+		var ok bool
+		if tok, ok = strings.CutPrefix(auth, "Bearer "); !ok {
+			return platform.Principal{}, platform.ErrUnauthenticated
+		}
+	}
+	tok = strings.TrimSpace(tok)
+	now := s.now()
+	c, err := s.Tokens.Verify(tok, now)
+	if err != nil {
 		return platform.Principal{}, platform.ErrUnauthenticated
 	}
-	now := s.now()
-	c, err := s.Tokens.Verify(strings.TrimSpace(tok), now)
-	if err != nil {
+	if c.Confirmation != nil {
+		if !dpop {
+			return platform.Principal{}, platform.ErrUnauthenticated // a bound token used as a bearer token
+		}
+		jkt, err := s.verifyDPoP(r.Context(), s.ProofFrom(r), tok, now)
+		if errors.Is(err, ErrDPoP) || (err == nil && jkt != c.Confirmation.JKT) {
+			return platform.Principal{}, platform.ErrUnauthenticated
+		}
+		if err != nil {
+			return platform.Principal{}, err
+		}
+	} else if dpop {
 		return platform.Principal{}, platform.ErrUnauthenticated
 	}
 	var live bool
@@ -645,6 +708,11 @@ func (s *Service) SetPIN(ctx context.Context, p platform.Principal, current, new
 			UPDATE identity.sessions SET revoked_at = $3
 			WHERE user_id = $1 AND family_id <> $2 AND revoked_at IS NULL`, p.UserID, p.SessionID, now)
 		if err != nil {
+			return err
+		}
+		// Whoever reset the PIN may not be the owner (a SIM swap). Biometric payment keys on every
+		// device stop working; the owner sets them up again with the new PIN.
+		if _, err := tx.Exec(ctx, `UPDATE identity.devices SET biometric_key_pub = NULL WHERE user_id = $1`, p.UserID); err != nil {
 			return err
 		}
 		if err := platform.WriteOutbox(ctx, tx, "identity.pin_reset", p.UserID, map[string]any{
@@ -782,4 +850,50 @@ func (s *Service) now() time.Time {
 		return s.Now().UTC()
 	}
 	return time.Now().UTC()
+}
+
+// ---------------------------------------------------------------------------
+// Biometric confirmation
+// ---------------------------------------------------------------------------
+
+// EnrollBiometric registers this device's biometric-gated public key so payments can be confirmed with
+// the fingerprint or face check instead of the PIN. It needs the PIN (wrong PINs count toward the
+// lockout), so an SMS code alone can never set it up. Any earlier key on the device is replaced.
+func (s *Service) EnrollBiometric(ctx context.Context, p platform.Principal, publicKey, pin string) error {
+	key, err := platform.ParseBiometricKey(strings.TrimSpace(publicKey))
+	if err != nil {
+		return &ValidationError{"public_key: " + err.Error()}
+	}
+	if err := s.PIN.Verify(ctx, p.UserID, pin); err != nil {
+		return err
+	}
+	tx, err := s.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx) //nolint:errcheck // no-op after Commit
+	tag, err := tx.Exec(ctx, `
+		UPDATE identity.devices SET biometric_key_pub = $3, biometric_enrolled_at = $4
+		WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL`, p.DeviceID, p.UserID, key, s.now())
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrSessionInvalid
+	}
+	// A new way to approve payments is worth telling the user about on all their devices.
+	if err := platform.WriteOutbox(ctx, tx, "identity.biometric_enrolled", p.UserID, map[string]any{
+		"user_id": p.UserID, "device_id": p.DeviceID,
+	}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+// RemoveBiometric turns biometric confirmation off on this device.
+func (s *Service) RemoveBiometric(ctx context.Context, p platform.Principal) error {
+	_, err := s.Pool.Exec(ctx, `
+		UPDATE identity.devices SET biometric_key_pub = NULL, biometric_enrolled_at = NULL
+		WHERE id = $1 AND user_id = $2`, p.DeviceID, p.UserID)
+	return err
 }

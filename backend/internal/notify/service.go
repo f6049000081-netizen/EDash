@@ -25,6 +25,7 @@ import (
 var Topics = []string{
 	"payment.succeeded", "payment.failed", "payment.held",
 	"identity.signed_in", "identity.pin_reset", "identity.pin_changed", "identity.refresh_token_reused",
+	"identity.biometric_enrolled",
 }
 
 // Push is what a device shows. Data lets the app open the right screen.
@@ -153,11 +154,16 @@ func (s *Service) security(ctx context.Context, m outbox.Message, ev identityEve
 		if !ev.NewDevice {
 			return nil
 		}
-		var devices int
-		if err := s.Pool.QueryRow(ctx, `SELECT count(*) FROM identity.devices WHERE user_id = $1`, ev.UserID).Scan(&devices); err != nil {
+		// Devices the account had before this one. Counted against this device's first sighting, not
+		// now: the event may be handled after more devices were added.
+		var earlier int
+		if err := s.Pool.QueryRow(ctx, `
+			SELECT count(*) FROM identity.devices d, identity.devices this
+			WHERE this.id = $2 AND d.user_id = $1 AND d.id <> this.id AND d.first_seen_at <= this.first_seen_at`,
+			ev.UserID, ev.DeviceID).Scan(&earlier); err != nil {
 			return err
 		}
-		if devices <= 1 {
+		if earlier == 0 {
 			return nil // the account's first device: that's signing up, not a warning
 		}
 		kind = "new_device"
@@ -168,6 +174,8 @@ func (s *Service) security(ctx context.Context, m outbox.Message, ev identityEve
 		kind = "pin_changed"
 	case "identity.refresh_token_reused":
 		kind = "session_revoked"
+	case "identity.biometric_enrolled":
+		kind = "biometric_enrolled"
 	default:
 		return nil
 	}
