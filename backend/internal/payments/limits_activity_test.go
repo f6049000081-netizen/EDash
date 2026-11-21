@@ -309,3 +309,31 @@ func TestKYCRequiredWhenLimitsAreMandatory(t *testing.T) {
 		t.Errorf("no limits configured for L3: %v", err)
 	}
 }
+
+func TestPayByPhone(t *testing.T) {
+	e := setup(t)
+	a, b := e.user("Ruth"), e.user("Samuel")
+	e.fund(a, 50_000)
+	var phone string
+	if err := e.pool.QueryRow(e.ctx, `SELECT phone_e164 FROM identity.users WHERE id = $1`, b).Scan(&phone); err != nil {
+		t.Fatal(err)
+	}
+	amt := money.New(5_000, money.ETB)
+	in, err := e.svc.CreateIntent(e.ctx, a, payments.CreateRequest{Kind: payments.KindP2P, PayeePhone: phone, Amount: &amt})
+	if err != nil || in.PayeeID != b || in.PayeeName != "Samuel" {
+		t.Fatalf("by phone: %+v %v", in, err)
+	}
+	if _, err := e.svc.Confirm(e.ctx, a, in.ID, pin); err != nil || e.wallet(b) != 5_000 {
+		t.Fatalf("confirm: %v, payee wallet %d", err, e.wallet(b))
+	}
+	for _, p := range []string{"+251900000000", "not-a-phone"} {
+		if _, err := e.svc.CreateIntent(e.ctx, a, payments.CreateRequest{Kind: payments.KindP2P, PayeePhone: p, Amount: &amt}); !errors.Is(err, payments.ErrPayeeNotFound) {
+			t.Errorf("%s: %v", p, err)
+		}
+	}
+	var own string
+	_ = e.pool.QueryRow(e.ctx, `SELECT phone_e164 FROM identity.users WHERE id = $1`, a).Scan(&own)
+	if _, err := e.svc.CreateIntent(e.ctx, a, payments.CreateRequest{Kind: payments.KindP2P, PayeePhone: own, Amount: &amt}); !errors.Is(err, payments.ErrSelfPayment) {
+		t.Errorf("own number: %v", err)
+	}
+}

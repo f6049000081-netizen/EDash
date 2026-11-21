@@ -157,6 +157,7 @@ func (s *Server) createIntent(w http.ResponseWriter, r *http.Request) {
 		Kind            payments.Kind `json:"kind"`
 		Amount          *money.Money  `json:"amount"`
 		PayeeUserID     *uuid.UUID    `json:"payee_user_id"`
+		PayeePhone      string        `json:"payee_phone"`
 		QRPayload       string        `json:"qr_payload"`
 		FundingSourceID *uuid.UUID    `json:"funding_source_id"`
 		Note            string        `json:"note"`
@@ -165,7 +166,7 @@ func (s *Server) createIntent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in, err := s.Payments.CreateIntent(r.Context(), platform.UserFrom(r.Context()), payments.CreateRequest{
-		Kind: body.Kind, Amount: body.Amount, PayeeUserID: body.PayeeUserID, QRPayload: body.QRPayload,
+		Kind: body.Kind, Amount: body.Amount, PayeeUserID: body.PayeeUserID, PayeePhone: body.PayeePhone, QRPayload: body.QRPayload,
 		FundingSourceID: body.FundingSourceID, Note: body.Note,
 	})
 	if err != nil {

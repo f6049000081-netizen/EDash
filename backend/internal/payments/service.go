@@ -64,6 +64,18 @@ func (s *Service) CreateIntent(ctx context.Context, payerID uuid.UUID, req Creat
 
 	switch req.Kind {
 	case KindP2P:
+		if req.PayeeUserID == nil && req.PayeePhone != "" {
+			// Unknown, inactive and malformed numbers all look the same to the caller.
+			var id uuid.UUID
+			err := s.Pool.QueryRow(ctx, `SELECT id FROM identity.users WHERE phone_e164 = $1 AND status = 'active'`, req.PayeePhone).Scan(&id)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return nil, ErrPayeeNotFound
+			}
+			if err != nil {
+				return nil, err
+			}
+			req.PayeeUserID = &id
+		}
 		if req.PayeeUserID == nil {
 			return nil, &ValidationError{"Choose who to send money to."}
 		}

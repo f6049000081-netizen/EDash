@@ -72,6 +72,7 @@ type CreateRequest struct {
 	Kind            Kind
 	Amount          *money.Money
 	PayeeUserID     *uuid.UUID
+	PayeePhone      string // E.164; used when PayeeUserID is not given
 	QRPayload       string
 	FundingSourceID *uuid.UUID
 	Note            string
