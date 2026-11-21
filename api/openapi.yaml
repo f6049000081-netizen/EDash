@@ -167,6 +167,7 @@ paths:
     patch:
       tags: [Profile]
       summary: Update display name, email or locale
+      description: Send only the fields to change. An empty email removes it. Emails are unique regardless of case (409 if taken).
       operationId: updateMe
       requestBody:
         required: true
@@ -274,6 +275,9 @@ paths:
     get:
       tags: [Wallet]
       summary: Unified activity feed (payments, orders, bills, transfers)
+      description: |
+        Newest first. Payments the user never confirmed, or cancelled, are left out because no money moved.
+        Pass `next_cursor` back as `cursor` for the next page; it is opaque and stops working if the list changes shape.
       operationId: listActivity
       parameters:
         - { name: filter, in: query, schema: { type: string, enum: [all, money, orders] } }
@@ -844,13 +848,18 @@ components:
       properties:
         id: { type: string, format: uuid }
         phone: { $ref: '#/components/schemas/Phone' }
+        email: { type: [string, 'null'], format: email }
         display_name: { type: string }
         locale: { $ref: '#/components/schemas/Locale' }
         kyc_level: { type: string, enum: [L0, L1, L2, L3] }
         status: { type: string, enum: [pending, active, restricted, frozen, closed] }
         has_pin: { type: boolean }
         limits:
-          type: object
+          type: [object, 'null']
+          description: |
+            Null until compliance configures limits for the user's KYC level. Sending is refused with
+            `limit_exceeded` (403) over the daily or monthly limit, and receiving or topping up past the
+            balance limit is refused the same way.
           properties:
             max_balance: { $ref: '#/components/schemas/Money' }
             daily_out_remaining: { $ref: '#/components/schemas/Money' }
@@ -918,7 +927,8 @@ components:
         direction: { type: string, enum: [in, out] }
         amount: { $ref: '#/components/schemas/Money' }
         status: { type: string, enum: [pending, completed, failed, refunded] }
-        charged: { type: boolean }
+        charged: { type: boolean, description: Outgoing items only. Whether money left the wallet. }
+        failure_code: { type: string, description: 'Problem code when status is failed, for example insufficient_funds or limit_exceeded.' }
         occurred_at: { type: string, format: date-time }
     Biller:
       type: object

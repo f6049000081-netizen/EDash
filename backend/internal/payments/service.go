@@ -34,6 +34,10 @@ type Service struct {
 	// from the map is refused with ErrRailUnavailable.
 	Rails map[string]TopUpRail
 	TopUp TopUpLimits
+
+	// LimitsRequired makes a missing identity.kyc_limits row block payments (kyc_required) instead
+	// of meaning "no limit". Turn it on in production once compliance has filled the table.
+	LimitsRequired bool
 }
 
 func NewService(pool *pgxpool.Pool, l *ledger.Ledger, risk RiskEngine, presence PresenceVerifier) *Service {
@@ -112,6 +116,11 @@ func (s *Service) CreateIntent(ctx context.Context, payerID uuid.UUID, req Creat
 		return nil, &ValidationError{"Enter an amount greater than zero."}
 	}
 	in.FeeMinor = 0 // wallet transfers and QR payments are free for the payer; merchants pay commission
+
+	// Tell the user about limits before they enter a PIN. Confirm checks again under a lock.
+	if err := s.checkSpend(ctx, s.Pool, payerID, in.Total(), time.Now()); err != nil {
+		return nil, err
+	}
 
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		err := tx.QueryRow(ctx, `
@@ -208,6 +217,14 @@ func (s *Service) Confirm(ctx context.Context, payerID, intentID uuid.UUID, pin 
 		return nil, err
 	}
 
+	// Lock the payer so parallel payments are checked against limits one at a time.
+	if _, err := tx.Exec(ctx, `SELECT 1 FROM identity.users WHERE id = $1 FOR UPDATE`, payerID); err != nil {
+		return nil, err
+	}
+	if err := s.checkSpend(ctx, tx, payerID, in.Total(), time.Now()); err != nil {
+		return s.failOnLimit(ctx, tx, in, err)
+	}
+
 	decision, err := s.Risk.Assess(ctx, tx, in)
 	if err != nil {
 		return nil, err
@@ -245,6 +262,15 @@ func (s *Service) Confirm(ctx context.Context, payerID, intentID uuid.UUID, pin 
 	var insufficient *ledger.InsufficientFundsError
 	switch {
 	case postErr == nil:
+		// The payee's balance row is locked by the post, so this check holds under concurrency.
+		if in.Kind == KindP2P {
+			if err := s.checkBalanceCap(ctx, sp, in.PayeeID, in.Amount.Currency, 0, "recipient"); err != nil {
+				if rbErr := sp.Rollback(ctx); rbErr != nil {
+					return nil, rbErr
+				}
+				return s.failOnLimit(ctx, tx, in, err)
+			}
+		}
 		if err := sp.Commit(ctx); err != nil {
 			return nil, err
 		}
@@ -268,6 +294,29 @@ func (s *Service) Confirm(ctx context.Context, payerID, intentID uuid.UUID, pin 
 		return nil, err
 	}
 	return s.Get(ctx, payerID, intentID)
+}
+
+// failOnLimit records a limit refusal on the intent (failed, nothing charged) and returns the
+// failed intent with the limit error. Any other error is returned as is.
+func (s *Service) failOnLimit(ctx context.Context, tx pgx.Tx, in *Intent, err error) (*Intent, error) {
+	var le *LimitError
+	code := "limit_exceeded"
+	switch {
+	case errors.As(err, &le):
+	case errors.Is(err, ErrKYCRequired):
+		code = "kyc_required"
+	default:
+		return nil, err
+	}
+	d := Decision{Action: ActionBlock, Model: "limits", Rules: []string{code}}
+	if ferr := s.finish(ctx, tx, in, StatusFailed, code, d, "system", "payment.failed"); ferr != nil {
+		return nil, ferr
+	}
+	failed, gerr := s.Get(ctx, in.PayerID, in.ID)
+	if gerr != nil {
+		return nil, gerr
+	}
+	return failed, err
 }
 
 // buildEntry turns an intent into balanced postings.

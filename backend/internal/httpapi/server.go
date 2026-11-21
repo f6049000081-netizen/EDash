@@ -54,10 +54,12 @@ func (s *Server) Routes() http.Handler {
 		mux.Handle("POST /v1/auth/logout", authed(s.logout))
 		mux.Handle("PUT /v1/auth/pin", mutating(s.setPIN))
 		mux.Handle("GET /v1/me", authed(s.getMe))
+		mux.Handle("PATCH /v1/me", authed(s.updateMe))
 	}
 	mux.Handle("POST /v1/topups", mutating(s.startTopUp))
 	mux.HandleFunc("POST /v1/webhooks/rails/{rail}", s.railNotification)
 	mux.Handle("GET /v1/wallet/balances", authed(s.getBalances))
+	mux.Handle("GET /v1/activity", authed(s.listActivity))
 	mux.Handle("POST /v1/qr/resolve", authed(s.resolveQR))
 	mux.Handle("POST /v1/payment-intents", mutating(s.createIntent))
 	mux.Handle("GET /v1/payment-intents/{id}", authed(s.getIntent))
@@ -285,6 +287,7 @@ func present(in *payments.Intent) intentJSON {
 
 func (s *Server) fail(w http.ResponseWriter, err error) {
 	var v *payments.ValidationError
+	var limit *payments.LimitError
 	var p *platform.Problem
 	switch {
 	case errors.As(err, &v):
@@ -301,6 +304,11 @@ func (s *Server) fail(w http.ResponseWriter, err error) {
 		s.Log.Error("rail error", "err", err)
 		p = platform.NewProblem(http.StatusServiceUnavailable, "rail_unavailable", "Provider not responding",
 			"The payment provider didn't respond. Nothing was charged. Please try again in a minute.").NotCharged()
+	case errors.As(err, &limit):
+		p = platform.NewProblem(http.StatusForbidden, "limit_exceeded", "Over your limit", limitMessage(limit)).NotCharged()
+	case errors.Is(err, payments.ErrKYCRequired):
+		p = platform.NewProblem(http.StatusForbidden, "kyc_required", "Verify your identity",
+			"Verify your identity with your Fayda ID to use payments.").NotCharged()
 	case errors.Is(err, payments.ErrTooManyPending):
 		p = platform.NewProblem(http.StatusConflict, "invalid_state", "Unfinished top-ups",
 			"Finish or wait for your other top-ups before starting a new one.")

@@ -188,6 +188,33 @@ func TestEndToEndSignInAndPay(t *testing.T) {
 		t.Errorf("payment right after a PIN reset: %v", out)
 	}
 
+	// Activity: newest first, the held payment pending, the sent transfer, the top-up.
+	st, act := alice.do("GET", "/v1/activity?limit=10", nil, false)
+	items, _ := act["items"].([]any)
+	if st != http.StatusOK || len(items) != 3 {
+		t.Fatalf("activity: %d %v", st, act)
+	}
+	first := items[0].(map[string]any)
+	if first["status"] != "pending" || first["type"] != "transfer_out" || items[2].(map[string]any)["type"] != "topup" {
+		t.Errorf("activity items: %v", items)
+	}
+	if st, p := alice.do("GET", "/v1/activity?cursor=garbage", nil, false); st != http.StatusUnprocessableEntity {
+		t.Errorf("bad cursor: %d %v", st, p)
+	}
+
+	// Profile edits; limits are null while compliance hasn't configured L0.
+	st, prof := alice.do("PATCH", "/v1/me", map[string]any{"display_name": "Alice Tadesse", "locale": "en"}, false)
+	if st != http.StatusOK || prof["display_name"] != "Alice Tadesse" || prof["locale"] != "en" {
+		t.Errorf("patch me: %d %v", st, prof)
+	}
+	if v, present := prof["limits"]; !present || v != nil {
+		t.Errorf("limits: %v", prof["limits"])
+	}
+	_, bobFeed := bob.do("GET", "/v1/activity", nil, false)
+	if bi, _ := bobFeed["items"].([]any); len(bi) != 1 || bi[0].(map[string]any)["title"] != "Alice Tadesse" {
+		t.Errorf("bob's feed should name the sender: %v", bobFeed)
+	}
+
 	// Refresh and logout over HTTP.
 	_, bal := alice.do("GET", "/v1/wallet/balances", nil, false)
 	if bal["balances"] == nil {

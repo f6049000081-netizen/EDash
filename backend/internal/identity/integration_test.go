@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -434,5 +435,53 @@ func TestResetAllowanceExpires(t *testing.T) {
 	e.advance(16 * time.Minute)
 	if err := e.svc.SetPIN(e.ctx, rp, "", "204961"); !errors.Is(err, identity.ErrCurrentPINRequired) {
 		t.Errorf("reset after the window: %v", err)
+	}
+}
+
+func TestUpdateProfile(t *testing.T) {
+	e := setup(t)
+	s := e.signIn(newPhone(), "signup", "phone")
+	p := e.principal(s)
+	str := func(v string) *string { return &v }
+
+	me, err := e.svc.UpdateProfile(e.ctx, p.UserID, identity.ProfileUpdate{
+		DisplayName: str("  Hanna   Bekele "), Email: str(" Hanna." + uuid.NewString()[:8] + "@Example.com "), Locale: str("om"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if me.DisplayName != "Hanna Bekele" || me.Locale != "om" || me.Email == "" || me.Email[0] != 'H' {
+		t.Errorf("updated profile: %+v", me)
+	}
+	// Fields left out stay as they are.
+	me2, err := e.svc.UpdateProfile(e.ctx, p.UserID, identity.ProfileUpdate{Locale: str("am")})
+	if err != nil || me2.DisplayName != "Hanna Bekele" || me2.Email != me.Email || me2.Locale != "am" {
+		t.Errorf("partial update: %+v %v", me2, err)
+	}
+
+	// Emails are unique regardless of case.
+	other := e.principal(e.signIn(newPhone(), "signup", "phone-2"))
+	upper := strings.ToUpper(me.Email)
+	if _, err := e.svc.UpdateProfile(e.ctx, other.UserID, identity.ProfileUpdate{Email: &upper}); !errors.Is(err, identity.ErrEmailInUse) {
+		t.Errorf("duplicate email: %v", err)
+	}
+
+	var v *identity.ValidationError
+	for name, u := range map[string]identity.ProfileUpdate{
+		"empty name":    {DisplayName: str("   ")},
+		"long name":     {DisplayName: str(strings.Repeat("ሀ", 61))},
+		"control chars": {DisplayName: str("Abebe\u0007")},
+		"bad email":     {Email: str("not-an-email")},
+		"bad locale":    {Locale: str("fr")},
+	} {
+		if _, err := e.svc.UpdateProfile(e.ctx, p.UserID, u); !errors.As(err, &v) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if me3, err := e.svc.UpdateProfile(e.ctx, p.UserID, identity.ProfileUpdate{Email: str("")}); err != nil || me3.Email != "" {
+		t.Errorf("remove email: %+v %v", me3, err)
+	}
+	if me4, err := e.svc.UpdateProfile(e.ctx, p.UserID, identity.ProfileUpdate{DisplayName: str(strings.Repeat("ሀ", 60))}); err != nil || me4.DisplayName == "" {
+		t.Errorf("60 Ge'ez characters should fit: %v", err)
 	}
 }

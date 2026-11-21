@@ -53,6 +53,24 @@ internal/httpapi/     routes and JSON mapping
 
 QR payments split the amount three ways: debit the payer, credit the merchant settlement account with the amount minus commission, and credit commission revenue. Commission comes from the merchant's plan, or 0.5% if it has none.
 
+## KYC limits
+
+`identity.kyc_limits` sets three amounts per KYC level and currency: the maximum wallet balance, and the most a user may send per day and per calendar month. Days and months run on Ethiopian time.
+- **Sending:** checked when a payment is created, so the user hears about it before entering a PIN, and again when it's confirmed. At confirmation the payer's row is locked, so parallel payments are counted one at a time. Payments held for review count toward the limit, because they may still go through.
+- **Receiving:** the recipient's balance limit is checked after posting, while their balance row is locked. A transfer that would take them over is undone and fails `limit_exceeded`, and the payer is not charged.
+- **Top-ups:** refused up front if the balance plus all unfinished top-ups would exceed the limit. A top-up that is already paid at telebirr but no longer fits can't be refused, so it is held for review instead of credited.
+- **Not configured yet:** compliance hasn't supplied values, so a missing row means no limit. `Service.LimitsRequired` turns that into `kyc_required` (fail closed). Production must enable it once the table is filled.
+- `GET /v1/me` reports `limits`: the balance limit and what's left to send today and this month. It is null while nothing is configured.
+
+## Activity and profile
+
+- **`GET /v1/activity`:** what the user sent, received and topped up, newest first.
+  - Each item has a counterparty name. For a person with no name set, it shows the last four phone digits.
+  - Status is `pending`, `completed`, `failed` or `refunded`. Outgoing items also say whether money was charged.
+  - Payments never confirmed, or cancelled, are left out.
+  - Paging uses an opaque cursor over (created_at, id), with two index-backed queries merged.
+- **`PATCH /v1/me`:** display name (whitespace collapsed, up to 60 characters, no control characters), email (unique regardless of case; empty removes it) and language.
+
 ## How a telebirr top-up works
 
 1. **Start it.** `POST /v1/topups` with `{"rail": "telebirr", "amount": ...}`:
@@ -148,6 +166,11 @@ The integration tests cover:
   - Limits, the pending-top-up cap, checkout failure, and the sweep.
 - telebirr top-up over HTTP: a forged notification gets 401 and credits nothing; the genuine one credits once across 3 deliveries; telebirr down gets 503 and recovers on retry.
 - Reconciliation: one line of each kind, our side missing from the statement, re-import refused, duplicate references refused, and CSV parsing.
+- Limits (KYC level L1 is reserved for these tests):
+  - Daily limit at create and confirm. 8 parallel confirms with room for 4: exactly 4 go through. This test fails if the payer lock is removed.
+  - Monthly limit; the recipient's balance limit leaves the payer uncharged; top-up balance limit, both up front and at settlement; `kyc_required` when limits are mandatory but missing.
+- Activity: item types, titles, statuses and `charged`; unconfirmed payments hidden; the payee's view; paging one item at a time; bad cursor and filter.
+- Profile: whitespace clean-up, partial updates, case-insensitive email uniqueness, validation, and a 60-character Ge'ez name.
 - P2P transfers and replayed confirms.
 - Insufficient funds.
 - The QR commission split.
@@ -192,7 +215,7 @@ curl -X POST localhost:8080/v1/auth/otp/verify -H 'Content-Type: application/jso
 - **Shared rate limiting:** the per-IP limiter lives in memory, so it should move to Redis once there's more than one API instance.
 - **Localisation:** Afaan Oromo and Tigrinya SMS text, plus a native-speaker review of the Amharic.
 - **Fraud review** of the allowed country prefixes. `+1` also reaches Caribbean numbers that SMS-pumping fraud often targets.
-- **`PATCH /v1/me`**, plus limits in `GET /v1/me` once compliance fills `identity.kyc_limits`.
+- **Limit values:** compliance fills `identity.kyc_limits`; then switch on `LimitsRequired`.
 - **Outbox relay** to Kafka.
 - **telebirr go-live:**
   - Confirm the points under "telebirr details still to confirm" with the merchant agreement.
@@ -200,5 +223,4 @@ curl -X POST localhost:8080/v1/auth/otp/verify -H 'Content-Type: application/jso
   - Add in-app checkout.
   - Show reconciliation exceptions in the admin console.
 - **Biometric confirmation:** verify device-key signatures.
-- **KYC limits** from `identity.kyc_limits`, enforced in the risk step.
-- **Activity feed and merchant payout batching.**
+- **Merchant payout batching**, and orders and bills in the activity feed once those modules exist.

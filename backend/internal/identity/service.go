@@ -24,6 +24,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -707,6 +709,7 @@ func weakPIN(pin, phone string) bool {
 type Profile struct {
 	ID          uuid.UUID
 	Phone       string
+	Email       string
 	DisplayName string
 	Locale      string
 	KYCLevel    string
@@ -717,11 +720,61 @@ type Profile struct {
 func (s *Service) Me(ctx context.Context, userID uuid.UUID) (*Profile, error) {
 	p := &Profile{ID: userID}
 	err := s.Pool.QueryRow(ctx, `
-		SELECT u.phone_e164, COALESCE(u.display_name, ''), u.locale::text, u.kyc_level::text, u.status::text,
+		SELECT u.phone_e164, COALESCE(u.email::text, ''), COALESCE(u.display_name, ''), u.locale::text, u.kyc_level::text, u.status::text,
 		       EXISTS (SELECT 1 FROM identity.credentials c WHERE c.user_id = u.id)
 		FROM identity.users u WHERE u.id = $1`, userID).
-		Scan(&p.Phone, &p.DisplayName, &p.Locale, &p.KYCLevel, &p.Status, &p.HasPIN)
+		Scan(&p.Phone, &p.Email, &p.DisplayName, &p.Locale, &p.KYCLevel, &p.Status, &p.HasPIN)
 	return p, err
+}
+
+// ProfileUpdate holds the fields PATCH /v1/me may change. Nil means "leave as is".
+type ProfileUpdate struct {
+	DisplayName *string
+	Email       *string // "" removes the email
+	Locale      *string
+}
+
+var (
+	emailRE       = regexp.MustCompile(`^[^@\s]{1,64}@[^@\s]+\.[^@\s]{2,}$`)
+	ErrEmailInUse = errors.New("email already used by another account")
+)
+
+func (s *Service) UpdateProfile(ctx context.Context, userID uuid.UUID, u ProfileUpdate) (*Profile, error) {
+	if u.DisplayName != nil {
+		name := strings.Join(strings.Fields(*u.DisplayName), " ")
+		if name == "" || utf8.RuneCountInString(name) > 60 || strings.ContainsFunc(name, unicode.IsControl) {
+			return nil, &ValidationError{"Enter a name of up to 60 characters."}
+		}
+		u.DisplayName = &name
+	}
+	if u.Email != nil {
+		e := strings.TrimSpace(*u.Email)
+		if e != "" && (len(e) > 254 || !emailRE.MatchString(e)) {
+			return nil, &ValidationError{"Enter a valid email address."}
+		}
+		u.Email = &e
+	}
+	if u.Locale != nil {
+		switch *u.Locale {
+		case "am", "om", "ti", "en":
+		default:
+			return nil, &ValidationError{"locale must be am, om, ti or en"}
+		}
+	}
+	_, err := s.Pool.Exec(ctx, `
+		UPDATE identity.users SET
+			display_name = COALESCE($2, display_name),
+			email = CASE WHEN $3::text IS NULL THEN email ELSE NULLIF($3, '')::citext END,
+			locale = COALESCE($4::platform.locale, locale),
+			updated_at = $5
+		WHERE id = $1`, userID, u.DisplayName, u.Email, u.Locale, s.now())
+	if platform.IsUniqueViolation(err) {
+		return nil, ErrEmailInUse
+	}
+	if err != nil {
+		return nil, err
+	}
+	return s.Me(ctx, userID)
 }
 
 func (s *Service) now() time.Time {

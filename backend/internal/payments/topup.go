@@ -132,6 +132,17 @@ func (s *Service) StartTopUp(ctx context.Context, userID uuid.UUID, amt money.Mo
 		if pending >= s.TopUp.MaxPending {
 			return ErrTooManyPending
 		}
+		// Unfinished top-ups count toward the balance cap: they may all be paid.
+		var pendingSum int64
+		if err := tx.QueryRow(ctx, `
+			SELECT COALESCE(sum(amount_minor), 0)::bigint FROM payments.intents
+			WHERE payer_user_id = $1 AND kind = 'topup' AND status = 'processing' AND currency = $2`,
+			userID, string(amt.Currency)).Scan(&pendingSum); err != nil {
+			return err
+		}
+		if err := s.checkBalanceCap(ctx, tx, userID, amt.Currency, amt.AmountMinor+pendingSum, "balance"); err != nil {
+			return err
+		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO payments.intents (id, kind, payer_user_id, payee_type, payee_id, amount_minor, currency, rail, status, confirmed_at)
 			VALUES ($1, 'topup', $2, 'user', $2, $3, $4, $5, 'processing', now())`,
@@ -220,6 +231,15 @@ func (s *Service) closeTopUp(ctx context.Context, id uuid.UUID, to Status, failu
 		want := money.New(amount, money.Currency(cur))
 
 		if to == StatusSucceeded {
+			// Serialise credits to one wallet so the balance-cap check below is exact.
+			if _, err := tx.Exec(ctx, `SELECT 1 FROM identity.users WHERE id = $1 FOR UPDATE`, payer); err != nil {
+				return err
+			}
+			capErr := s.checkBalanceCap(ctx, tx, payer, want.Currency, want.AmountMinor, "balance")
+			var le *LimitError
+			if capErr != nil && !errors.As(capErr, &le) && !errors.Is(capErr, ErrKYCRequired) {
+				return capErr
+			}
 			var dup bool
 			if err := tx.QueryRow(ctx, `
 				SELECT EXISTS (SELECT 1 FROM payments.intents WHERE rail = $1 AND partner_ref = $2 AND id <> $3)`,
@@ -231,6 +251,11 @@ func (s *Service) closeTopUp(ctx context.Context, id uuid.UUID, to Status, failu
 				// The same partner payment can't fund two top-ups.
 				to, failure, partnerRef, topic = StatusHeldForReview, "duplicate_partner_ref", "", "payment.held"
 				reason += " (payment reference already used)"
+			case capErr != nil:
+				// The customer has already paid the partner, so the money can't be refused here.
+				// Hold it for operations to refund or release once the user's KYC level allows it.
+				to, failure, topic = StatusHeldForReview, "limit_exceeded", "payment.held"
+				reason += " (over the wallet's balance limit)"
 			case paid == nil || *paid != want:
 				got := "no amount"
 				if paid != nil {

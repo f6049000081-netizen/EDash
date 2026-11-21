@@ -104,10 +104,50 @@ func (s *Server) getMe(w http.ResponseWriter, r *http.Request) {
 		s.failAuth(w, err)
 		return
 	}
-	// limits stays null until compliance fills identity.kyc_limits.
+	s.writeProfile(w, r, p)
+}
+
+func (s *Server) updateMe(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		DisplayName *string `json:"display_name"`
+		Email       *string `json:"email"`
+		Locale      *string `json:"locale"`
+	}
+	if !decode(w, r, &body) {
+		return
+	}
+	p, err := s.Identity.UpdateProfile(r.Context(), platform.UserFrom(r.Context()), identity.ProfileUpdate{
+		DisplayName: body.DisplayName, Email: body.Email, Locale: body.Locale,
+	})
+	if err != nil {
+		s.failAuth(w, err)
+		return
+	}
+	s.writeProfile(w, r, p)
+}
+
+// writeProfile adds the user's limits; "limits" is null until compliance fills identity.kyc_limits.
+func (s *Server) writeProfile(w http.ResponseWriter, r *http.Request, p *identity.Profile) {
+	var limits any
+	if s.Payments != nil {
+		st, err := s.Payments.LimitStatus(r.Context(), p.ID)
+		if err != nil {
+			s.fail(w, err)
+			return
+		}
+		if st != nil {
+			limits = map[string]any{
+				"max_balance": st.MaxBalance, "daily_out_remaining": st.DailyRemaining, "monthly_out_remaining": st.MonthlyRemaining,
+			}
+		}
+	}
+	var email any
+	if p.Email != "" {
+		email = p.Email
+	}
 	platform.WriteJSON(w, http.StatusOK, map[string]any{
-		"id": p.ID, "phone": p.Phone, "display_name": p.DisplayName, "locale": p.Locale,
-		"kyc_level": p.KYCLevel, "status": p.Status, "has_pin": p.HasPIN, "limits": nil,
+		"id": p.ID, "phone": p.Phone, "email": email, "display_name": p.DisplayName, "locale": p.Locale,
+		"kyc_level": p.KYCLevel, "status": p.Status, "has_pin": p.HasPIN, "limits": limits,
 	})
 }
 
@@ -165,6 +205,9 @@ func (s *Server) failAuth(w http.ResponseWriter, err error) {
 	case errors.Is(err, identity.ErrCurrentPINRequired):
 		p = platform.NewProblem(http.StatusBadRequest, "validation_failed", "Enter your current PIN",
 			"Enter your current PIN, or reset it with a code sent to your phone.")
+	case errors.Is(err, identity.ErrEmailInUse):
+		p = platform.NewProblem(http.StatusConflict, "validation_failed", "Email already used",
+			"That email belongs to another account.")
 	case errors.Is(err, identity.ErrSMSUnavailable):
 		p = platform.NewProblem(http.StatusServiceUnavailable, "sms_unavailable", "Couldn't send the code", "Please try again in a minute.")
 	default:
