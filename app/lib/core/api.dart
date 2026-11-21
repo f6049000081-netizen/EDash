@@ -107,8 +107,7 @@ class Api {
     }();
   }
 
-  Future<Map<String, dynamic>> get(String path, {Map<String, String>? query}) =>
-      _authed('GET', path, query: query);
+  Future<Map<String, dynamic>> get(String path, {Map<String, String>? query}) => _authed('GET', path, query: query);
 
   /// State-changing call. Pass the same [idempotencyKey] when retrying the same action.
   Future<Map<String, dynamic>> post(String path, Map<String, dynamic> body, {String? idempotencyKey}) =>
@@ -126,7 +125,9 @@ class Api {
   Future<Map<String, dynamic>> _authed(String method, String path,
       {Map<String, dynamic>? body, Map<String, String>? query, String? idempotencyKey}) async {
     if (_tokens == null || _tokens!.expiresAt.isBefore(DateTime.now().add(const Duration(seconds: 30)))) {
-      if (await _refresh() == null) throw ApiProblem(401, 'unauthenticated', 'Sign in again', 'Your session has ended.');
+      if (await _refresh() == null) {
+        throw ApiProblem(401, 'unauthenticated', 'Sign in again', 'Your session has ended.');
+      }
     }
     try {
       return await _send(method, path, body: body, query: query, idempotencyKey: idempotencyKey);
@@ -154,7 +155,9 @@ class Api {
       throw ApiProblem.network();
     }
     if (res.statusCode == 204 || res.body.isEmpty) {
-      if (res.statusCode >= 400) throw ApiProblem(res.statusCode, 'http_${res.statusCode}', 'Something went wrong', 'Please try again.');
+      if (res.statusCode >= 400) {
+        throw ApiProblem(res.statusCode, 'http_${res.statusCode}', 'Something went wrong', 'Please try again.');
+      }
       return const {};
     }
     Map<String, dynamic> j;
@@ -399,22 +402,28 @@ class GebeyaApi {
   }
 
   Future<PaymentIntent> sendToPhone(String phone, Money amount, {String? note, required String key}) async =>
-      PaymentIntent.fromJson(await api.post('/v1/payment-intents', {
-        'kind': 'p2p',
-        'payee_phone': phone,
-        'amount': amount.toJson(),
-        if (note != null && note.isNotEmpty) 'note': note,
-      }, idempotencyKey: key));
+      PaymentIntent.fromJson(await api.post(
+          '/v1/payment-intents',
+          {
+            'kind': 'p2p',
+            'payee_phone': phone,
+            'amount': amount.toJson(),
+            if (note != null && note.isNotEmpty) 'note': note,
+          },
+          idempotencyKey: key));
 
   Future<PaymentIntent> payQr(String payload, Money? amount, {required String key}) async =>
-      PaymentIntent.fromJson(await api.post('/v1/payment-intents', {
-        'kind': 'qr_merchant',
-        'qr_payload': payload,
-        if (amount != null) 'amount': amount.toJson(),
-      }, idempotencyKey: key));
+      PaymentIntent.fromJson(await api.post(
+          '/v1/payment-intents',
+          {
+            'kind': 'qr_merchant',
+            'qr_payload': payload,
+            if (amount != null) 'amount': amount.toJson(),
+          },
+          idempotencyKey: key));
 
-  Future<PaymentIntent> confirm(String intentId, String pin, {required String key}) async =>
-      PaymentIntent.fromJson(await api.post('/v1/payment-intents/$intentId/confirm', {'pin': pin}, idempotencyKey: key));
+  Future<PaymentIntent> confirm(String intentId, String pin, {required String key}) async => PaymentIntent.fromJson(
+      await api.post('/v1/payment-intents/$intentId/confirm', {'pin': pin}, idempotencyKey: key));
 
   Future<void> cancel(String intentId) => api.post('/v1/payment-intents/$intentId/cancel', {});
 
@@ -424,6 +433,9 @@ class GebeyaApi {
   /// telebirr confirms the payment to the server.
   Future<({PaymentIntent intent, String checkoutUrl})> startTopUp(Money amount, {required String key}) async {
     final j = await api.post('/v1/topups', {'amount': amount.toJson(), 'rail': 'telebirr'}, idempotencyKey: key);
-    return (intent: PaymentIntent.fromJson(j['intent'] as Map<String, dynamic>), checkoutUrl: j['checkout_url'] as String);
+    return (
+      intent: PaymentIntent.fromJson(j['intent'] as Map<String, dynamic>),
+      checkoutUrl: j['checkout_url'] as String
+    );
   }
 }

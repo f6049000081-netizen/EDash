@@ -109,7 +109,8 @@ class _ActivityScreenState extends State<ActivityScreen> {
             if (_loadedOnce && _items.isEmpty && _problem == null)
               Padding(
                 padding: const EdgeInsets.all(G1.s6),
-                child: Text(s.t('no_activity'), textAlign: TextAlign.center, style: text.bodyMedium?.copyWith(color: c.inkMuted)),
+                child: Text(s.t('no_activity'),
+                    textAlign: TextAlign.center, style: text.bodyMedium?.copyWith(color: c.inkMuted)),
               ),
             if (_problem != null)
               Padding(padding: const EdgeInsets.all(G1.s4), child: ProblemBanner(_problem!, onRetry: _more)),

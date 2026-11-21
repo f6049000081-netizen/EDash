@@ -6,8 +6,7 @@ class Money {
   final int amountMinor;
   final String currency;
 
-  factory Money.fromJson(Map<String, dynamic> j) =>
-      Money((j['amount_minor'] as num).toInt(), j['currency'] as String);
+  factory Money.fromJson(Map<String, dynamic> j) => Money((j['amount_minor'] as num).toInt(), j['currency'] as String);
 
   Map<String, dynamic> toJson() => {'amount_minor': amountMinor, 'currency': currency};
 
@@ -16,8 +15,7 @@ class Money {
   bool get isZero => amountMinor == 0;
 
   @override
-  bool operator ==(Object other) =>
-      other is Money && other.amountMinor == amountMinor && other.currency == currency;
+  bool operator ==(Object other) => other is Money && other.amountMinor == amountMinor && other.currency == currency;
 
   @override
   int get hashCode => Object.hash(amountMinor, currency);

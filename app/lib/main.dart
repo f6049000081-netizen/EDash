@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart' show CupertinoLocalizations;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -96,8 +97,7 @@ class FallbackMaterialLocalizations extends LocalizationsDelegate<MaterialLocali
   bool isSupported(Locale locale) => !GlobalMaterialLocalizations.delegate.isSupported(locale);
 
   @override
-  Future<MaterialLocalizations> load(Locale locale) =>
-      GlobalMaterialLocalizations.delegate.load(const Locale('en'));
+  Future<MaterialLocalizations> load(Locale locale) => GlobalMaterialLocalizations.delegate.load(const Locale('en'));
 
   @override
   bool shouldReload(FallbackMaterialLocalizations old) => false;
@@ -110,8 +110,7 @@ class FallbackCupertinoLocalizations extends LocalizationsDelegate<CupertinoLoca
   bool isSupported(Locale locale) => !GlobalCupertinoLocalizations.delegate.isSupported(locale);
 
   @override
-  Future<CupertinoLocalizations> load(Locale locale) =>
-      GlobalCupertinoLocalizations.delegate.load(const Locale('en'));
+  Future<CupertinoLocalizations> load(Locale locale) => GlobalCupertinoLocalizations.delegate.load(const Locale('en'));
 
   @override
   bool shouldReload(FallbackCupertinoLocalizations old) => false;

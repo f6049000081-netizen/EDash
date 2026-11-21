@@ -75,7 +75,9 @@ class BalanceCard extends StatelessWidget {
   }
 
   Widget _skeleton(Color fg) => Container(
-      width: 180, height: 28, decoration: BoxDecoration(color: fg.withOpacity(0.15), borderRadius: BorderRadius.circular(G1.rS)));
+      width: 180,
+      height: 28,
+      decoration: BoxDecoration(color: fg.withOpacity(0.15), borderRadius: BorderRadius.circular(G1.rS)));
 }
 
 /// A quick action: icon in a 48px brand-tint well, label underneath.
@@ -262,7 +264,8 @@ class _PinPadState extends State<PinPad> {
               borderRadius: BorderRadius.circular(G1.rPill),
               child: SizedBox(
                 height: 64,
-                child: Center(child: child ?? Text(label, style: text.displayMedium?.copyWith(fontWeight: FontWeight.w600))),
+                child: Center(
+                    child: child ?? Text(label, style: text.displayMedium?.copyWith(fontWeight: FontWeight.w600))),
               ),
             ),
           ),
@@ -344,9 +347,7 @@ class ProblemBanner extends StatelessWidget {
             if (problem.charged == false) Text(s.t('not_charged'), style: text.bodySmall?.copyWith(color: c.ink)),
             if (onRetry != null)
               TextButton(
-                  onPressed: onRetry,
-                  style: TextButton.styleFrom(padding: EdgeInsets.zero),
-                  child: Text(s.t('retry'))),
+                  onPressed: onRetry, style: TextButton.styleFrom(padding: EdgeInsets.zero), child: Text(s.t('retry'))),
           ]),
         ),
       ]),

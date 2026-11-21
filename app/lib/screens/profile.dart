@@ -60,7 +60,8 @@ class ProfileScreen extends StatelessWidget {
               title: Text(s.t('display_name')),
               subtitle: p.displayName.isEmpty ? null : Text(p.displayName),
               trailing: const Icon(Icons.chevron_right),
-              onTap: () => _editText(context, s.t('display_name'), p.displayName, (v) => app.api.updateMe(displayName: v)),
+              onTap: () =>
+                  _editText(context, s.t('display_name'), p.displayName, (v) => app.api.updateMe(displayName: v)),
             ),
             ListTile(
               leading: const Icon(Icons.mail_outline),

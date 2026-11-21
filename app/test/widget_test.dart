@@ -61,7 +61,8 @@ void main() {
 
   testWidgets('home shows balance and recent activity; failed outgoing items are marked', (tester) async {
     final state = appWith((r) async => switch (r.url.path) {
-          '/v1/auth/token/refresh' => json({'access_token': 'a', 'refresh_token': 'r2', 'user_id': 'u1', 'expires_in': 900}),
+          '/v1/auth/token/refresh' =>
+            json({'access_token': 'a', 'refresh_token': 'r2', 'user_id': 'u1', 'expires_in': 900}),
           '/v1/me' => json({
               'id': 'u1',
               'phone': '+251911234567',

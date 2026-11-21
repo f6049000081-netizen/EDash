@@ -73,18 +73,22 @@ class _ShellState extends State<Shell> {
             item(0, Icons.home_outlined, Icons.home, s.t('tab_home')),
             item(1, Icons.explore_outlined, Icons.explore, s.t('tab_explore')),
             Expanded(
-              child: Center(
-                child: Semantics(
-                  button: true,
-                  label: s.t('tab_pay'),
-                  excludeSemantics: true,
-                  child: GestureDetector(
-                    onTap: _openPay,
-                    child: Container(
-                      width: 56,
-                      height: 56,
-                      decoration: BoxDecoration(color: c.brand, shape: BoxShape.circle, boxShadow: G1.shadow2(context)),
-                      child: Icon(Icons.qr_code_scanner, color: c.onBrand),
+              child: SizedBox(
+                height: 64,
+                child: Center(
+                  child: Semantics(
+                    button: true,
+                    label: s.t('tab_pay'),
+                    excludeSemantics: true,
+                    child: GestureDetector(
+                      onTap: _openPay,
+                      child: Container(
+                        width: 56,
+                        height: 56,
+                        decoration:
+                            BoxDecoration(color: c.brand, shape: BoxShape.circle, boxShadow: G1.shadow2(context)),
+                        child: Icon(Icons.qr_code_scanner, color: c.onBrand),
+                      ),
                     ),
                   ),
                 ),
@@ -163,14 +167,12 @@ class _HomeTabState extends State<HomeTab> {
             const SizedBox(height: G1.s6),
             Row(children: [
               Expanded(
-                  child: QuickAction(
-                      icon: Icons.north_east, label: s.t('action_send'), onTap: () => openSend(context))),
+                  child:
+                      QuickAction(icon: Icons.north_east, label: s.t('action_send'), onTap: () => openSend(context))),
               Expanded(
                   child: QuickAction(
                       icon: Icons.qr_code_scanner, label: s.t('action_scan'), onTap: () => openScan(context))),
-              Expanded(
-                  child: QuickAction(
-                      icon: Icons.add, label: s.t('action_add'), onTap: () => openTopUp(context))),
+              Expanded(child: QuickAction(icon: Icons.add, label: s.t('action_add'), onTap: () => openTopUp(context))),
             ]),
             const SizedBox(height: G1.s6),
             Row(children: [

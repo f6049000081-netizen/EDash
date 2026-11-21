@@ -99,7 +99,8 @@ class S {
       'topup_waiting': 'Waiting for telebirr',
       'topup_waiting_body': 'Finish the payment in telebirr. Your balance updates when telebirr confirms it.',
       'topup_done': 'Added {amount} to your wallet',
-      'topup_unavailable': 'telebirr top-ups aren\'t available yet. We\'ll switch them on once our telebirr partnership is live.',
+      'topup_unavailable':
+          'telebirr top-ups aren\'t available yet. We\'ll switch them on once our telebirr partnership is live.',
       'check_status': 'Check status',
       'activity_title': 'Activity',
       'filter_all': 'All',

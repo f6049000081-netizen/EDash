@@ -166,7 +166,8 @@ class _SendScreenState extends State<SendScreen> {
           AmountField(controller: _amount, error: _amountError),
           if (limits != null) ...[
             const SizedBox(height: G1.s2),
-            Text('${s.t('limit_daily')}: ${limits.dailyRemaining.format()}', style: Theme.of(context).textTheme.bodySmall),
+            Text('${s.t('limit_daily')}: ${limits.dailyRemaining.format()}',
+                style: Theme.of(context).textTheme.bodySmall),
           ],
           const SizedBox(height: G1.s4),
           TextField(
@@ -208,13 +209,13 @@ class _ScanScreenState extends State<ScanScreen> {
       _handling = true;
       _problem = null;
     });
-    await _scanner.stop();
     final app = AppScope.read(context);
+    await _scanner.stop();
     try {
       final payee = await app.api.resolveQr(payload);
       if (!mounted) return;
-      await Navigator.of(context).pushReplacement(MaterialPageRoute(
-          builder: (_) => QrAmountScreen(payload: payload, payee: payee)));
+      await Navigator.of(context)
+          .pushReplacement(MaterialPageRoute(builder: (_) => QrAmountScreen(payload: payload, payee: payee)));
     } on ApiProblem catch (p) {
       setState(() => _problem = p);
       await _scanner.start();
@@ -416,7 +417,8 @@ class _ReviewScreenState extends State<ReviewScreen> {
     Widget line(String label, Money m, {bool strong = false}) => Padding(
           padding: const EdgeInsets.symmetric(vertical: G1.s2),
           child: Row(children: [
-            Expanded(child: Text(label, style: strong ? text.titleSmall : text.bodyMedium?.copyWith(color: c.inkMuted))),
+            Expanded(
+                child: Text(label, style: strong ? text.titleSmall : text.bodyMedium?.copyWith(color: c.inkMuted))),
             AmountText(m, style: strong ? text.titleMedium : text.bodyMedium),
           ]),
         );
@@ -551,10 +553,17 @@ class ResultScreen extends StatelessWidget {
           Icons.check,
           c.success,
           c.successTint,
-          successTitle ?? s.t(i.kind == 'p2p' ? 'sent_to' : 'paid_to', {'amount': i.total.format(), 'name': i.payeeName}),
+          successTitle ??
+              s.t(i.kind == 'p2p' ? 'sent_to' : 'paid_to', {'amount': i.total.format(), 'name': i.payeeName}),
           '',
         ),
-      'held_for_review' || 'processing' => (Icons.schedule, c.warning, c.warningTint, s.t('held_title'), s.t('held_body')),
+      'held_for_review' || 'processing' => (
+          Icons.schedule,
+          c.warning,
+          c.warningTint,
+          s.t('held_title'),
+          s.t('held_body')
+        ),
       _ => (
           Icons.close,
           c.danger,
@@ -577,7 +586,8 @@ class ResultScreen extends StatelessWidget {
                 tween: Tween(begin: MediaQuery.of(context).disableAnimations ? 1 : 0, end: 1),
                 duration: const Duration(milliseconds: 400),
                 curve: Curves.easeOut,
-                builder: (_, v, child) => Transform.scale(scale: 0.6 + 0.4 * v, child: Opacity(opacity: v, child: child)),
+                builder: (_, v, child) =>
+                    Transform.scale(scale: 0.6 + 0.4 * v, child: Opacity(opacity: v, child: child)),
                 child: Container(
                   width: 88,
                   height: 88,

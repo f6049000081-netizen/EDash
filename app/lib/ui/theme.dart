@@ -203,17 +203,19 @@ ThemeData g1Theme(Brightness b, {required bool ethiopic}) {
       ),
     ),
     textButtonTheme: TextButtonThemeData(
-      style: TextButton.styleFrom(foregroundColor: c.brand, minimumSize: const Size(44, 44), textStyle: text.labelLarge),
+      style:
+          TextButton.styleFrom(foregroundColor: c.brand, minimumSize: const Size(44, 44), textStyle: text.labelLarge),
     ),
     inputDecorationTheme: InputDecorationTheme(
       filled: true,
       fillColor: c.surface2,
       contentPadding: const EdgeInsets.symmetric(horizontal: G1.s4, vertical: G1.s4),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(G1.rM), borderSide: BorderSide(color: c.lineStrong)),
+      border:
+          OutlineInputBorder(borderRadius: BorderRadius.circular(G1.rM), borderSide: BorderSide(color: c.lineStrong)),
       enabledBorder:
           OutlineInputBorder(borderRadius: BorderRadius.circular(G1.rM), borderSide: BorderSide(color: c.lineStrong)),
-      focusedBorder:
-          OutlineInputBorder(borderRadius: BorderRadius.circular(G1.rM), borderSide: BorderSide(color: c.brand, width: 2)),
+      focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(G1.rM), borderSide: BorderSide(color: c.brand, width: 2)),
       errorBorder:
           OutlineInputBorder(borderRadius: BorderRadius.circular(G1.rM), borderSide: BorderSide(color: c.danger)),
       labelStyle: text.bodyMedium?.copyWith(color: c.inkMuted),

@@ -37,7 +37,14 @@ void main() {
 
   group('phone', () {
     test('normalizes Ethiopian numbers', () {
-      for (final s in ['0911234567', '911234567', '+251911234567', '251911234567', '00251 91 123 4567', '091-123-4567']) {
+      for (final s in [
+        '0911234567',
+        '911234567',
+        '+251911234567',
+        '251911234567',
+        '00251 91 123 4567',
+        '091-123-4567'
+      ]) {
         expect(normalizePhone(s), '+251911234567', reason: s);
       }
       expect(normalizePhone('0711234567'), '+251711234567');
@@ -72,18 +79,28 @@ void main() {
         client: MockClient((r) async {
           seen.add(r);
           return http.Response(
-              jsonEncode({'code': 'insufficient_funds', 'title': 'Not enough money', 'message': 'Add money first.', 'charged': false}),
+              jsonEncode({
+                'code': 'insufficient_funds',
+                'title': 'Not enough money',
+                'message': 'Add money first.',
+                'charged': false
+              }),
               402,
               headers: {'content-type': 'application/problem+json'});
         }),
       );
       await api.setTokens(Tokens.fromJson(session('a1', 'r1')));
-      final err = await api.post('/v1/payment-intents', {}).then((_) => null, onError: (e) => e);
-      expect(err, isA<ApiProblem>());
-      final p = err as ApiProblem;
-      expect([p.status, p.code, p.message, p.charged], [402, 'insufficient_funds', 'Add money first.', false]);
+      ApiProblem? p;
+      try {
+        await api.post('/v1/payment-intents', {});
+      } on ApiProblem catch (e) {
+        p = e;
+      }
+      expect(p, isNotNull);
+      expect([p!.status, p.code, p.message, p.charged], [402, 'insufficient_funds', 'Add money first.', false]);
       expect(seen.single.headers['Authorization'], 'Bearer a1');
-      expect(seen.single.headers['Idempotency-Key'], matches(RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')));
+      expect(seen.single.headers['Idempotency-Key'],
+          matches(RegExp(r'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$')));
     });
 
     test('refreshes once on 401, even for parallel calls, then retries', () async {
@@ -131,9 +148,11 @@ void main() {
 
     test('network failures become a readable problem', () async {
       final api = Api(
-          baseUrl: 'http://api', store: MemoryTokenStore(), client: MockClient((r) async => throw Exception('offline')));
-      final err = await api.postPublic('/v1/auth/otp', {}).then((_) => null, onError: (e) => e) as ApiProblem;
-      expect(err.code, 'network');
+          baseUrl: 'http://api',
+          store: MemoryTokenStore(),
+          client: MockClient((r) async => throw Exception('offline')));
+      await expectLater(
+          api.postPublic('/v1/auth/otp', {}), throwsA(isA<ApiProblem>().having((p) => p.code, 'code', 'network')));
     });
 
     test('parses activity and limits from the API shapes', () async {

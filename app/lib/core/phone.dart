@@ -17,8 +17,7 @@ String? normalizePhone(String input) {
   return _ethiopian(raw);
 }
 
-String? _ethiopian(String national) =>
-    RegExp(r'^[79]\d{8}$').hasMatch(national) ? '+251$national' : null;
+String? _ethiopian(String national) => RegExp(r'^[79]\d{8}$').hasMatch(national) ? '+251$national' : null;
 
 /// "+251 91 123 4567" for display.
 String displayPhone(String e164) {
