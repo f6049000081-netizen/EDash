@@ -216,6 +216,7 @@ curl -X POST localhost:8080/v1/auth/otp/verify -H 'Content-Type: application/jso
 - **Localisation:** Afaan Oromo and Tigrinya SMS text, plus a native-speaker review of the Amharic.
 - **Fraud review** of the allowed country prefixes. `+1` also reaches Caribbean numbers that SMS-pumping fraud often targets.
 - **Limit values:** compliance fills `identity.kyc_limits`; then switch on `LimitsRequired`.
+- **Payee lookup throttling:** `payee_phone` shows the recipient's verified name before the PIN (as the design requires), which also lets someone check which numbers have accounts. Rate-limit lookups per user and per device, and flag accounts that create many unconfirmed intents.
 - **Outbox relay** to Kafka.
 - **telebirr go-live:**
   - Confirm the points under "telebirr details still to confirm" with the merchant agreement.

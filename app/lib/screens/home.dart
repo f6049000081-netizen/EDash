@@ -1,0 +1,237 @@
+import 'package:flutter/material.dart';
+
+import '../core/api.dart';
+import '../core/app_state.dart';
+import '../l10n/strings.dart';
+import '../ui/theme.dart';
+import '../ui/widgets.dart';
+import 'activity.dart';
+import 'pay.dart';
+import 'profile.dart';
+import 'topup.dart';
+
+/// Five tabs: Home, Explore, Pay (raised centre button), Activity, Profile.
+class Shell extends StatefulWidget {
+  const Shell({super.key});
+
+  @override
+  State<Shell> createState() => _ShellState();
+}
+
+class _ShellState extends State<Shell> {
+  int _tab = 0;
+
+  void _openPay() => showPaySheet(context);
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    final c = G1.c(context);
+    final pages = [
+      HomeTab(onSeeAll: () => setState(() => _tab = 3)),
+      const ExploreTab(),
+      const SizedBox.shrink(),
+      const ActivityScreen(),
+      const ProfileScreen(),
+    ];
+    Widget item(int i, IconData icon, IconData active, String label) {
+      final selected = _tab == i;
+      return Expanded(
+        child: Semantics(
+          selected: selected,
+          button: true,
+          label: label,
+          excludeSemantics: true,
+          child: InkWell(
+            onTap: () => setState(() => _tab = i),
+            child: SizedBox(
+              height: 64,
+              child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                Icon(selected ? active : icon, color: selected ? c.brand : c.inkSubtle),
+                const SizedBox(height: 2),
+                Text(label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context)
+                        .textTheme
+                        .labelSmall
+                        ?.copyWith(color: selected ? c.brand : c.inkMuted, letterSpacing: 0)),
+              ]),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Scaffold(
+      body: IndexedStack(index: _tab, children: pages),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(color: c.surface1, border: Border(top: BorderSide(color: c.line))),
+        child: SafeArea(
+          top: false,
+          child: Row(children: [
+            item(0, Icons.home_outlined, Icons.home, s.t('tab_home')),
+            item(1, Icons.explore_outlined, Icons.explore, s.t('tab_explore')),
+            Expanded(
+              child: Center(
+                child: Semantics(
+                  button: true,
+                  label: s.t('tab_pay'),
+                  excludeSemantics: true,
+                  child: GestureDetector(
+                    onTap: _openPay,
+                    child: Container(
+                      width: 56,
+                      height: 56,
+                      decoration: BoxDecoration(color: c.brand, shape: BoxShape.circle, boxShadow: G1.shadow2(context)),
+                      child: Icon(Icons.qr_code_scanner, color: c.onBrand),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            item(3, Icons.receipt_long_outlined, Icons.receipt_long, s.t('tab_activity')),
+            item(4, Icons.person_outline, Icons.person, s.t('tab_profile')),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+class HomeTab extends StatefulWidget {
+  const HomeTab({super.key, required this.onSeeAll});
+  final VoidCallback onSeeAll;
+
+  @override
+  State<HomeTab> createState() => _HomeTabState();
+}
+
+class _HomeTabState extends State<HomeTab> {
+  List<ActivityItem>? _recent;
+  ApiProblem? _problem;
+  int _loadedVersion = -1;
+
+  Future<void> _load() async {
+    final app = AppScope.read(context);
+    _loadedVersion = app.activityVersion;
+    try {
+      final page = await app.api.activity(limit: 5);
+      if (mounted) {
+        setState(() {
+          _recent = page.items;
+          _problem = null;
+        });
+      }
+    } on ApiProblem catch (p) {
+      if (mounted) setState(() => _problem = p);
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (AppScope.of(context).activityVersion != _loadedVersion) _load();
+  }
+
+  String _greeting(S s) {
+    final h = DateTime.now().hour;
+    return s.t(h < 12 ? 'greeting_morning' : (h < 18 ? 'greeting_afternoon' : 'greeting_evening'));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    final c = G1.c(context);
+    final text = Theme.of(context).textTheme;
+    final app = AppScope.of(context);
+    final name = app.profile?.displayName ?? '';
+    return SafeArea(
+      child: RefreshIndicator(
+        onRefresh: app.refresh,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(G1.s4, G1.s6, G1.s4, G1.s6),
+          children: [
+            Text(name.isEmpty ? _greeting(s) : '${_greeting(s)}, ${name.split(' ').first}', style: text.displayMedium),
+            const SizedBox(height: G1.s6),
+            BalanceCard(
+              balance: app.balance,
+              hidden: app.balanceHidden,
+              onToggle: app.toggleBalance,
+              onRetry: app.balance == null && app.profile != null ? app.refresh : null,
+            ),
+            const SizedBox(height: G1.s6),
+            Row(children: [
+              Expanded(
+                  child: QuickAction(
+                      icon: Icons.north_east, label: s.t('action_send'), onTap: () => openSend(context))),
+              Expanded(
+                  child: QuickAction(
+                      icon: Icons.qr_code_scanner, label: s.t('action_scan'), onTap: () => openScan(context))),
+              Expanded(
+                  child: QuickAction(
+                      icon: Icons.add, label: s.t('action_add'), onTap: () => openTopUp(context))),
+            ]),
+            const SizedBox(height: G1.s6),
+            Row(children: [
+              Expanded(child: Text(s.t('recent_activity'), style: text.labelSmall)),
+              TextButton(onPressed: widget.onSeeAll, child: Text(s.t('see_all'))),
+            ]),
+            Container(
+              decoration: BoxDecoration(
+                  color: c.surface1, borderRadius: BorderRadius.circular(G1.rL), border: Border.all(color: c.line)),
+              clipBehavior: Clip.antiAlias,
+              child: _recentList(s, text),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _recentList(S s, TextTheme text) {
+    if (_problem != null && _recent == null) {
+      return Padding(padding: const EdgeInsets.all(G1.s4), child: ProblemBanner(_problem!, onRetry: _load));
+    }
+    if (_recent == null) {
+      return const Padding(padding: EdgeInsets.all(G1.s6), child: Center(child: CircularProgressIndicator()));
+    }
+    if (_recent!.isEmpty) {
+      return Padding(padding: const EdgeInsets.all(G1.s5), child: Text(s.t('no_activity'), style: text.bodySmall));
+    }
+    return Column(children: [
+      for (var i = 0; i < _recent!.length; i++) ...[
+        if (i > 0) const Divider(indent: 68),
+        TransactionRow(item: _recent![i]),
+      ],
+    ]);
+  }
+}
+
+/// No mini-apps are live yet. Said plainly rather than filled with placeholders.
+class ExploreTab extends StatelessWidget {
+  const ExploreTab({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    final c = G1.c(context);
+    final text = Theme.of(context).textTheme;
+    return SafeArea(
+      child: ListView(padding: const EdgeInsets.all(G1.s4), children: [
+        const SizedBox(height: G1.s2),
+        Text(s.t('explore_title'), style: text.displayMedium),
+        const SizedBox(height: G1.s6),
+        Container(
+          padding: const EdgeInsets.all(G1.s5),
+          decoration: BoxDecoration(color: c.brandTint, borderRadius: BorderRadius.circular(G1.rL)),
+          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Icon(Icons.storefront_outlined, color: c.brand),
+            const SizedBox(width: G1.s3),
+            Expanded(child: Text(s.t('explore_empty'), style: text.bodyMedium)),
+          ]),
+        ),
+      ]),
+    );
+  }
+}

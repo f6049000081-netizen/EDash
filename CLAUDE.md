@@ -18,7 +18,9 @@ Wallet-centred super app for Ethiopia and the diaspora. The original brief is `M
 6. **telebirr top-ups and daily reconciliation.** Switched off until merchant credentials are set. The wire details still to confirm against the telebirr merchant agreement are listed in `backend/README.md`.
 7. **Backend round for the app:** activity feed, KYC limit enforcement (values still to come from compliance) and `PATCH /v1/me`.
 
-**Next on the roadmap:** the Flutter consumer app in `app/`. The user chose Flutter on 2026-11-21. After that: the outbox relay to Kafka (push notifications), biometric confirmation plus DPoP, and merchant payouts. Telebirr go-live work is listed under "Next" in `backend/README.md`.
+8. **Flutter consumer app** in `app/` (in progress): all screens and tests are written. Still to do: generate the `android/` and `ios/` folders with `flutter create`, add the camera permission, then get `flutter analyze` and `flutter test` passing in Docker (`ghcr.io/cirruslabs/flutter:3.24.5`; commands in `app/README.md`).
+
+**Next on the roadmap:** finish item 8. After that: the outbox relay to Kafka (push notifications), biometric confirmation plus DPoP, and merchant payouts. Telebirr go-live work is listed under "Next" in `backend/README.md`.
 
 ## Running things (Windows; Go is NOT installed, everything runs in Docker)
 
