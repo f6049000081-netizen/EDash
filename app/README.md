@@ -58,8 +58,17 @@ To rebuild the SDK volume:
 2. Check its SHA-256 against `releases_linux.json`.
 3. Unpack it into `g1flutter` at `/opt/flutter`.
 
-Building an APK also needs the Android SDK, which isn't set up yet. Once it is, run:
-`flutter build apk --debug --dart-define=API_BASE_URL=http://10.0.2.2:8080`. `10.0.2.2` is the host machine as seen from the Android emulator.
+To build a debug APK:
+
+```sh
+./flutterw.sh 'flutter build apk --debug --dart-define=API_BASE_URL=http://10.0.2.2:8080'
+# -> build/app/outputs/flutter-apk/app-debug.apk (about 100 MB, all four CPU types)
+```
+
+- **Which address to use:** `10.0.2.2` is the host machine as seen from the Android emulator. A physical phone needs the PC's address on the local network (for example `http://192.168.1.20:8080`), and the API must listen on that interface.
+- **Android SDK and Java:** both live in the `g1android` volume, with Java at `/sdk/jdk17`. The SDK has the command-line tools, platform 34, build tools 34.0.0 and platform tools. Gradle and its dependencies are cached in `g1gradle`.
+- **Gradle download:** the wrapper uses `gradle-8.3-bin.zip`. On a flaky connection, download it with `curl -C -` and copy it into `/root/.gradle/wrapper/dists/gradle-8.3-bin/dxjbbhstwasg8cbags9q7cvli/`.
+- **NDK:** `ndkVersion` is left unset in `android/app/build.gradle`, so builds don't download the 1 GB NDK and plugin native libraries are packaged unstripped. Set it again before a release build.
 
 Platform settings:
 - **Android:** internet and camera permissions, with the camera marked optional. App backup is off. Plain HTTP is allowed only by the debug manifest, for a local API. There's a `queries` entry so the telebirr checkout link can open.

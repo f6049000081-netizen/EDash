@@ -8,7 +8,9 @@ plugins {
 android {
     namespace = "one.gebeya.gebeya_one"
     compileSdk = flutter.compileSdkVersion
-    ndkVersion = flutter.ndkVersion
+    // ndkVersion = flutter.ndkVersion
+    // Left unset: the app has no native code of its own, so builds don't need the 1 GB NDK.
+    // Plugin .so files are then packaged unstripped. Set it again before a release build.
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_1_8
