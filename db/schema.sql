@@ -241,7 +241,9 @@ CREATE TRIGGER entries_append_only BEFORE UPDATE OR DELETE ON ledger.journal_ent
 -- ---------------------------------------------------------------------------
 -- PAYMENTS: funding sources, payment intents, transfers, FX, QR
 -- ---------------------------------------------------------------------------
-CREATE TYPE payments.rail AS ENUM ('wallet', 'telebirr', 'cbe_birr', 'mpesa_et', 'ethswitch', 'card', 'remittance');
+-- 'sandbox' is test money in dev environments only (POST /v1/sandbox/topups). It never names a real
+-- provider, so test credits can't be mistaken for partner payments in activity or reconciliation.
+CREATE TYPE payments.rail AS ENUM ('wallet', 'telebirr', 'cbe_birr', 'mpesa_et', 'ethswitch', 'card', 'remittance', 'sandbox');
 CREATE TYPE payments.intent_status AS ENUM (
     'created', 'requires_confirmation', 'processing', 'held_for_review',
     'succeeded', 'failed', 'cancelled', 'reversed'

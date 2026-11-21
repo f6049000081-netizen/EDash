@@ -36,7 +36,7 @@ type ActivityPage struct {
 
 var railNames = map[string]string{
 	"telebirr": "telebirr", "cbe_birr": "CBE Birr", "mpesa_et": "M-PESA", "ethswitch": "Bank transfer",
-	"card": "Card", "remittance": "Money from abroad", "wallet": "Wallet",
+	"card": "Card", "remittance": "Money from abroad", "wallet": "Wallet", "sandbox": "Test money (sandbox)",
 }
 
 // Activity lists what the user sent, received and topped up. Intents that were never confirmed or

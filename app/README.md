@@ -78,6 +78,8 @@ Production builds must point `API_BASE_URL` at an `https` address.
 
 ## Not done yet
 
+- Device attestation. At sign-in the app sends a random install ID, kept in secure storage, as the device `attestation`. That's enough for the dev server, which only uses it to recognise the device. Production needs Play Integrity and App Attest tokens, and the production verifiers reject an install ID.
+
 - Biometric confirmation. It needs the server's DPoP and biometric-key work; the PIN is the only method for now.
 - Push notifications. They need the outbox relay.
 - Request money, bills, airtime and orders. Their backend modules don't exist yet.

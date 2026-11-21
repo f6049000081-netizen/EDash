@@ -26,6 +26,16 @@ class SecureTokenStore implements TokenStore {
   @override
   Future<void> writeRefresh(String? token) =>
       token == null ? _storage.delete(key: _key) : _storage.write(key: _key, value: token);
+
+  @override
+  Future<String> installId() async {
+    const key = 'g1.install_id';
+    final existing = await _storage.read(key: key);
+    if (existing != null) return existing;
+    final id = newIdempotencyKey();
+    await _storage.write(key: key, value: id);
+    return id;
+  }
 }
 
 void main() {

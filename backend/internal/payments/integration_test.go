@@ -96,7 +96,7 @@ func digits(id uuid.UUID) string {
 
 func (e *env) fund(user uuid.UUID, minor int64) {
 	e.t.Helper()
-	if _, err := e.svc.SandboxTopUp(e.ctx, user, money.New(minor, money.ETB), "telebirr"); err != nil {
+	if _, err := e.svc.SandboxTopUp(e.ctx, user, money.New(minor, money.ETB)); err != nil {
 		e.t.Fatal(err)
 	}
 }

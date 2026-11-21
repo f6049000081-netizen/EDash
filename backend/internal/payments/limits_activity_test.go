@@ -64,7 +64,7 @@ func TestActivityFeed(t *testing.T) {
 		{"transfer_out", "Bekele", "failed", "out", 1_000_000, ptr(false)},
 		{"payment", "Buna House", "completed", "out", 10_000, ptr(true)},
 		{"transfer_out", "Bekele", "completed", "out", 25_000, ptr(true)},
-		{"topup", "telebirr", "completed", "in", 100_000, nil},
+		{"topup", "Test money (sandbox)", "completed", "in", 100_000, nil},
 	}
 	if len(page.Items) != len(want) || page.NextCursor != "" {
 		t.Fatalf("%d items (cursor %q): %+v", len(page.Items), page.NextCursor, page.Items)

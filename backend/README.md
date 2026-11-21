@@ -211,6 +211,7 @@ curl -X POST localhost:8080/v1/auth/otp/verify -H 'Content-Type: application/jso
 - **Settings:** they come from `backend/.env`, which git ignores. It holds `APP_ENV=dev`, `DATABASE_URL=postgres://postgres:test@g1db:5432/g1dev` and two random base64 32-byte keys, `AUTH_SIGNING_KEY` and `OTP_HMAC_KEY`. Keeping the keys there means sessions survive restarts.
 - **First time:** create the database with `CREATE DATABASE g1dev`, then load `db/schema.sql` into it.
 - **Sign-in codes:** they aren't sent in dev. Read them with `docker logs -f g1api 2>&1 | grep "dev sms"`.
+- **Test money:** `./dev-topup.sh +2519XXXXXXXX 500 ["Name"]` adds sandbox money to that number, creating the account if needed. The money is recorded under its own `sandbox` source and shows in activity as "Test money (sandbox)", never as a real provider. The endpoint exists only on the dev server.
 - **Phones:** a phone reaches the API at the PC's address on the local network, so build the app with that address in `API_BASE_URL`. On a network Windows marks as Public, inbound port 8080 may need a firewall rule.
 
 ## Next

@@ -45,14 +45,20 @@ class Tokens {
 abstract class TokenStore {
   Future<String?> readRefresh();
   Future<void> writeRefresh(String? token);
+
+  /// A random ID made once per install and kept across sign-outs, so the server recognises the device.
+  Future<String> installId();
 }
 
 class MemoryTokenStore implements TokenStore {
   String? _v;
+  final String _install = newIdempotencyKey();
   @override
   Future<String?> readRefresh() async => _v;
   @override
   Future<void> writeRefresh(String? token) async => _v = token;
+  @override
+  Future<String> installId() async => _install;
 }
 
 /// Thin client for the Gebeya One API. It attaches the access token, refreshes it once on 401,
@@ -345,11 +351,15 @@ class GebeyaApi {
   }
 
   /// Returns whether the user still needs to set a PIN.
+  ///
+  /// The device's `attestation` is the install ID for now. That is enough for the dev server, which only
+  /// uses it to recognise the device. Production needs a Play Integrity (Android) or App Attest (iOS)
+  /// token here, and the production verifiers reject an install ID.
   Future<bool> verifyOtp(String challengeId, String code, {required String platform, required String model}) async {
     final j = await api.postPublic('/v1/auth/otp/verify', {
       'challenge_id': challengeId,
       'code': code,
-      'device': {'platform': platform, 'model': model},
+      'device': {'platform': platform, 'model': model, 'attestation': await api.store.installId()},
     });
     await api.setTokens(Tokens.fromJson(j));
     return (j['needs_pin'] as bool?) ?? false;

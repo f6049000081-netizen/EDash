@@ -155,6 +155,22 @@ void main() {
           api.postPublic('/v1/auth/otp', {}), throwsA(isA<ApiProblem>().having((p) => p.code, 'code', 'network')));
     });
 
+    test('sign-in sends the same install ID as the device attestation every time', () async {
+      final sent = <String>[];
+      final api = GebeyaApi(Api(
+        baseUrl: 'http://api',
+        store: MemoryTokenStore(),
+        client: MockClient((r) async {
+          sent.add((jsonDecode(r.body)['device'] as Map)['attestation'] as String);
+          return http.Response(jsonEncode({...session('a', 'r'), 'needs_pin': true}), 200);
+        }),
+      ));
+      expect(await api.verifyOtp('c1', '123456', platform: 'android', model: 'x'), isTrue);
+      await api.verifyOtp('c2', '654321', platform: 'android', model: 'x');
+      expect(sent[0], isNotEmpty);
+      expect(sent[1], sent[0]);
+    });
+
     test('parses activity and limits from the API shapes', () async {
       final api = GebeyaApi(Api(
         baseUrl: 'http://api',

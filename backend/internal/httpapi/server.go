@@ -230,15 +230,11 @@ func (s *Server) cancelIntent(w http.ResponseWriter, r *http.Request) {
 func (s *Server) sandboxTopUp(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Amount money.Money `json:"amount"`
-		Rail   string      `json:"rail"`
 	}
 	if !decode(w, r, &body) {
 		return
 	}
-	if body.Rail == "" {
-		body.Rail = "telebirr"
-	}
-	in, err := s.Payments.SandboxTopUp(r.Context(), platform.UserFrom(r.Context()), body.Amount, body.Rail)
+	in, err := s.Payments.SandboxTopUp(r.Context(), platform.UserFrom(r.Context()), body.Amount)
 	if err != nil {
 		s.fail(w, err)
 		return

@@ -507,9 +507,11 @@ func (s *Service) Get(ctx context.Context, payerID, intentID uuid.UUID) (*Intent
 // Sandbox top-up
 // ---------------------------------------------------------------------------
 
-// SandboxTopUp credits a wallet as if money arrived from a partner rail. It records a real ledger entry
-// against a partner clearing account, exactly as a confirmed partner top-up will. Only wired up in dev.
-func (s *Service) SandboxTopUp(ctx context.Context, userID uuid.UUID, amt money.Money, rail string) (*Intent, error) {
+// SandboxTopUp credits a wallet with test money for development. It posts a balanced ledger entry against
+// the "sandbox" clearing account, the same shape as a confirmed partner top-up, but under its own rail so
+// it is never shown or reconciled as a real provider's payment. Only wired up in dev.
+func (s *Service) SandboxTopUp(ctx context.Context, userID uuid.UUID, amt money.Money) (*Intent, error) {
+	const rail = "sandbox"
 	if amt.AmountMinor <= 0 || !amt.Currency.Valid() {
 		return nil, &ValidationError{"Enter a positive amount in a supported currency."}
 	}
