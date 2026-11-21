@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:http/http.dart' as http;
 
+import 'device_keys.dart';
 import 'money.dart';
 
 /// An RFC 9457 problem from the API. `code` is the stable machine value; `message` is already
@@ -26,18 +27,22 @@ class ApiProblem implements Exception {
 
 /// Tokens issued by /v1/auth/otp/verify and /v1/auth/token/refresh.
 class Tokens {
-  Tokens(this.access, this.refresh, this.userId, this.expiresAt);
+  Tokens(this.access, this.refresh, this.userId, this.expiresAt, {this.dpop = false});
 
   final String access;
   final String refresh;
   final String userId;
   final DateTime expiresAt;
 
+  /// The session is bound to this phone's DPoP key: every request needs a proof.
+  final bool dpop;
+
   factory Tokens.fromJson(Map<String, dynamic> j) => Tokens(
         j['access_token'] as String,
         j['refresh_token'] as String,
         j['user_id'] as String,
         DateTime.now().add(Duration(seconds: (j['expires_in'] as num).toInt())),
+        dpop: j['token_type'] == 'DPoP',
       );
 }
 
@@ -64,12 +69,18 @@ class MemoryTokenStore implements TokenStore {
 /// Thin client for the Gebeya One API. It attaches the access token, refreshes it once on 401,
 /// adds an Idempotency-Key to every state-changing call, and turns error bodies into [ApiProblem].
 class Api {
-  Api({required this.baseUrl, required this.store, http.Client? client, this.onSignedOut})
+  Api(
+      {required this.baseUrl,
+      required this.store,
+      http.Client? client,
+      this.onSignedOut,
+      this.keys = const NoDeviceKeys()})
       : _http = client ?? http.Client();
 
   final String baseUrl;
   final TokenStore store;
   final http.Client _http;
+  final DeviceKeys keys;
 
   /// Called when the refresh token is rejected: the session is over and the user must sign in.
   void Function()? onSignedOut;
@@ -82,6 +93,7 @@ class Api {
   Future<void> setTokens(Tokens? t) async {
     _tokens = t;
     await store.writeRefresh(t?.refresh);
+    if (t == null) await keys.dpopReset(); // the next sign-in binds a fresh key
   }
 
   /// Restores a session from the stored refresh token. Returns false if there is none or it no longer works.
@@ -124,6 +136,8 @@ class Api {
 
   Future<Map<String, dynamic>> patch(String path, Map<String, dynamic> body) => _authed('PATCH', path, body: body);
 
+  Future<Map<String, dynamic>> delete(String path) => _authed('DELETE', path);
+
   /// Calls that need no session (sign-in).
   Future<Map<String, dynamic>> postPublic(String path, Map<String, dynamic> body) =>
       _send('POST', path, body: body, auth: false);
@@ -148,7 +162,21 @@ class Api {
       {Map<String, dynamic>? body, Map<String, String>? query, String? idempotencyKey, bool auth = true}) async {
     final uri = Uri.parse(baseUrl + path).replace(queryParameters: (query == null || query.isEmpty) ? null : query);
     final req = http.Request(method, uri)..headers['Accept'] = 'application/json';
-    if (auth && _tokens != null) req.headers['Authorization'] = 'Bearer ${_tokens!.access}';
+    final htu = '${uri.scheme}://${uri.authority}${uri.path}';
+    if (auth && _tokens != null) {
+      if (_tokens!.dpop) {
+        final proof = await dpopProof(keys, method, htu, accessToken: _tokens!.access);
+        if (proof == null) throw ApiProblem(401, 'unauthenticated', 'Sign in again', 'Your session has ended.');
+        req.headers['Authorization'] = 'DPoP ${_tokens!.access}';
+        req.headers['DPoP'] = proof;
+      } else {
+        req.headers['Authorization'] = 'Bearer ${_tokens!.access}';
+      }
+    } else if (path == '/v1/auth/otp/verify' || path == '/v1/auth/token/refresh') {
+      // Binds the new or refreshed session to this phone's key, when it has one.
+      final proof = await dpopProof(keys, method, htu);
+      if (proof != null) req.headers['DPoP'] = proof;
+    }
     if (idempotencyKey != null) req.headers['Idempotency-Key'] = idempotencyKey;
     if (body != null) {
       req.headers['Content-Type'] = 'application/json';
@@ -344,6 +372,7 @@ class PaymentIntent {
     required this.fee,
     required this.total,
     this.failureCode,
+    this.confirmChallenge,
   });
 
   final String id;
@@ -355,6 +384,9 @@ class PaymentIntent {
   final Money fee;
   final Money total;
   final String? failureCode;
+
+  /// Base64 bytes the biometric key signs to confirm. Present while the intent can be confirmed.
+  final String? confirmChallenge;
 
   factory PaymentIntent.fromJson(Map<String, dynamic> j) {
     final payee = (j['payee'] as Map<String, dynamic>?) ?? const {};
@@ -369,6 +401,7 @@ class PaymentIntent {
       fee: Money.fromJson(j['fee'] as Map<String, dynamic>),
       total: Money.fromJson(j['total'] as Map<String, dynamic>),
       failureCode: failure?['code'] as String?,
+      confirmChallenge: j['confirm_challenge'] as String?,
     );
   }
 }
@@ -486,6 +519,17 @@ class GebeyaApi {
 
   Future<PaymentIntent> confirm(String intentId, String pin, {required String key}) async => PaymentIntent.fromJson(
       await api.post('/v1/payment-intents/$intentId/confirm', {'pin': pin}, idempotencyKey: key));
+
+  /// Confirms with a signature from this phone's biometric key over the intent's confirm_challenge.
+  Future<PaymentIntent> confirmBiometric(String intentId, String signature, {required String key}) async =>
+      PaymentIntent.fromJson(await api.post('/v1/payment-intents/$intentId/confirm', {'biometric_signature': signature},
+          idempotencyKey: key));
+
+  /// Registers this phone's biometric public key. The PIN is required.
+  Future<void> enrollBiometric(String publicKey, String pin) =>
+      api.put('/v1/devices/current/biometric-key', {'public_key': publicKey, 'pin': pin});
+
+  Future<void> removeBiometric() => api.delete('/v1/devices/current/biometric-key');
 
   Future<void> cancel(String intentId) => api.post('/v1/payment-intents/$intentId/cancel', {});
 

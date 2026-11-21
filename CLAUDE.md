@@ -18,11 +18,13 @@ Wallet-centred super app for Ethiopia and the diaspora. The original brief is `M
 6. **telebirr top-ups and daily reconciliation.** Switched off until merchant credentials are set. The wire details still to confirm against the telebirr merchant agreement are listed in `backend/README.md`.
 7. **Backend round for the app:** activity feed, KYC limit enforcement (values still to come from compliance) and `PATCH /v1/me`.
 
-8. **Flutter consumer app** in `app/`: sign-in, PIN, home, send, QR pay, telebirr top-up, activity and profile, in four languages. `flutter analyze` is clean and 16 tests pass. Run it with `app/flutterw.sh` (Flutter runs in Docker from the `g1flutter` volume). A debug APK builds with `./flutterw.sh 'flutter build apk --debug ...'` (Android SDK and JDK 17 in the `g1android` volume). Tested on a real Android phone against the dev server (`backend/run-dev.sh`) on 2026-11-21: sign-in, PIN, balance, QR pay and send to a phone number all worked. Test money comes from `backend/dev-topup.sh` (sandbox rail).
+8. **Flutter consumer app** in `app/`: sign-in, PIN, home, send, QR pay, telebirr top-up, activity and profile, in four languages. `flutter analyze` is clean and 20 tests pass. Run it with `app/flutterw.sh` (Flutter runs in Docker from the `g1flutter` volume). A debug APK builds with `./flutterw.sh 'flutter build apk --debug ...'` (Android SDK and JDK 17 in the `g1android` volume). Tested on a real Android phone against the dev server (`backend/run-dev.sh`) on 2026-11-21: sign-in, PIN, balance, QR pay and send to a phone number all worked. Test money comes from `backend/dev-topup.sh` (sandbox rail).
 
 9. **Outbox relay and notifications** (2026-11-22): relay to Kafka or in-process (`internal/outbox`), notifications service with am/en text, in-app list and bell, push tokens, Firebase sender (off until a Firebase project exists). Tested on the phone: the bell showed Abebe's notifications.
 
-**Next on the roadmap:** biometric confirmation plus DPoP, then merchant payouts. Waiting on others: a native-speaker review of the Afaan Oromo and Tigrinya text, and a Firebase project for lock-screen pushes. Telebirr go-live work is listed under "Next" in `backend/README.md`.
+10. **DPoP and biometric confirmation** (2026-11-22): sessions bound to a hardware key (RFC 9449), payments confirmable with a biometric-gated key registered with the PIN. Android only (`MainActivity.kt`); iOS still uses bearer tokens and the PIN.
+
+**Next on the roadmap:** merchant payouts. Also open: the iOS Secure Enclave side of device keys, key attestation, then `DPOP_REQUIRED=true`. Waiting on others: a native-speaker review of the Afaan Oromo and Tigrinya text, and a Firebase project for lock-screen pushes. Telebirr go-live work is listed under "Next" in `backend/README.md`.
 
 ## Running things (Windows; Go is NOT installed, everything runs in Docker)
 

@@ -1,8 +1,10 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../core/api.dart';
+import '../core/device_keys.dart';
 import '../core/app_state.dart';
 import '../core/money.dart';
 import '../core/phone.dart';
@@ -395,17 +397,55 @@ class _ReviewScreenState extends State<ReviewScreen> {
   }
 
   Future<void> _pay() async {
-    final result = await showModalBottomSheet<PaymentIntent>(
+    final app = AppScope.read(context);
+    PaymentIntent? result = await _payWithBiometric(app);
+    if (!mounted) return;
+    result ??= await showModalBottomSheet<PaymentIntent>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(G1.rXl))),
       builder: (_) => _PinSheet(intent: widget.intent),
     );
-    if (result == null || !mounted) return;
+    final done = result;
+    if (done == null || !mounted) return;
     _leaving = true;
-    AppScope.read(context).refresh();
-    Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => ResultScreen(intent: result)));
+    app.refresh();
+    Navigator.of(context).pushReplacement(MaterialPageRoute(builder: (_) => ResultScreen(intent: done)));
+  }
+
+  /// Confirms with the phone's fingerprint or face check when this phone has it set up. Returns null to
+  /// fall back to the PIN: cancelled, not set up, or refused by the server.
+  Future<PaymentIntent?> _payWithBiometric(AppState app) async {
+    final keys = app.api.api.keys;
+    final challenge = widget.intent.confirmChallenge;
+    if (challenge == null || !await keys.biometricEnrolled()) return null;
+    if (!mounted) return null;
+    final s = S.of(context);
+    final String signature;
+    try {
+      signature = await keys.biometricSign(base64.decode(challenge),
+          title: s.t('bio_prompt_title', {'amount': widget.intent.total.format()}),
+          subtitle: widget.intent.payeeName,
+          cancel: s.t('bio_use_pin'));
+    } on BiometricException catch (e) {
+      if (e.outcome == BiometricOutcome.notEnrolled) await keys.biometricDelete();
+      return null;
+    }
+    try {
+      return await app.api.confirmBiometric(widget.intent.id, signature, key: newIdempotencyKey());
+    } on ApiProblem catch (p) {
+      if (p.code == 'biometric_not_enrolled') await keys.biometricDelete(); // e.g. turned off by a PIN reset
+      if (p.code == 'biometric_not_enrolled' || p.code == 'biometric_failed' || p.code == 'network') return null;
+      // Refused by a rule (balance, limit, risk): show the result like the PIN path does.
+      PaymentIntent latest;
+      try {
+        latest = await app.api.intent(widget.intent.id);
+      } on ApiProblem {
+        latest = widget.intent;
+      }
+      return _FailedIntent(latest, p);
+    }
   }
 
   @override

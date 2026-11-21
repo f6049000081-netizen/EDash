@@ -4,6 +4,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'core/api.dart';
+import 'core/device_keys.dart';
 import 'core/app_state.dart';
 import 'l10n/strings.dart';
 import 'screens/home.dart';
@@ -40,7 +41,7 @@ class SecureTokenStore implements TokenStore {
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  final state = AppState(GebeyaApi(Api(baseUrl: apiBaseUrl, store: SecureTokenStore())));
+  final state = AppState(GebeyaApi(Api(baseUrl: apiBaseUrl, store: SecureTokenStore(), keys: ChannelDeviceKeys())));
   state.start();
   runApp(GebeyaOneApp(state: state));
 }

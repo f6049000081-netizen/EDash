@@ -92,6 +92,7 @@ class ProfileScreen extends StatelessWidget {
             ]),
           const SizedBox(height: G1.s6),
           card([
+            const BiometricTile(),
             ListTile(
               leading: const Icon(Icons.password),
               title: Text(s.t('change_pin')),
@@ -255,6 +256,131 @@ class _ChangePinScreenState extends State<ChangePinScreen> {
             PinPad(key: ValueKey(step), onComplete: _entered, error: _error, busy: _busy),
           ]),
         ),
+      ),
+    );
+  }
+}
+
+/// "Confirm payments with fingerprint or face". Shown only on phones with a strong biometric sensor and
+/// the native key support. Turning it on needs the PIN; the server then tells all the user's devices.
+class BiometricTile extends StatefulWidget {
+  const BiometricTile({super.key});
+
+  @override
+  State<BiometricTile> createState() => _BiometricTileState();
+}
+
+class _BiometricTileState extends State<BiometricTile> {
+  bool? _available;
+  bool _on = false;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  Future<void> _load() async {
+    final keys = AppScope.read(context).api.api.keys;
+    final available = await keys.biometricAvailable();
+    final on = available && await keys.biometricEnrolled();
+    if (!mounted) return;
+    setState(() {
+      _available = available;
+      _on = on;
+    });
+  }
+
+  Future<void> _toggle(bool on) async {
+    final app = AppScope.read(context);
+    final keys = app.api.api.keys;
+    setState(() => _busy = true);
+    try {
+      if (!on) {
+        try {
+          await app.api.removeBiometric();
+        } on ApiProblem {
+          // the local key goes either way, so this phone can't confirm with it any more
+        }
+        await keys.biometricDelete();
+        if (mounted) setState(() => _on = false);
+        return;
+      }
+      final enrolled = await showModalBottomSheet<bool>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(G1.rXl))),
+        builder: (_) => const _BiometricEnrollSheet(),
+      );
+      if (mounted) setState(() => _on = enrolled ?? false);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_available != true) return const SizedBox.shrink();
+    final s = S.of(context);
+    return SwitchListTile(
+      secondary: const Icon(Icons.fingerprint),
+      title: Text(s.t('bio_setting')),
+      subtitle: Text(s.t('bio_setting_body')),
+      value: _on,
+      onChanged: _busy ? null : _toggle,
+    );
+  }
+}
+
+class _BiometricEnrollSheet extends StatefulWidget {
+  const _BiometricEnrollSheet();
+
+  @override
+  State<_BiometricEnrollSheet> createState() => _BiometricEnrollSheetState();
+}
+
+class _BiometricEnrollSheetState extends State<_BiometricEnrollSheet> {
+  String? _error;
+  bool _busy = false;
+
+  Future<void> _enroll(String pin) async {
+    final app = AppScope.read(context);
+    final keys = app.api.api.keys;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final pub = await keys.biometricCreate();
+      await app.api.enrollBiometric(pub, pin);
+      if (mounted) Navigator.of(context).pop(true);
+    } on ApiProblem catch (p) {
+      await keys.biometricDelete();
+      if (mounted) setState(() => _error = p.message.isNotEmpty ? p.message : S.of(context).t('error_generic'));
+    } catch (_) {
+      await keys.biometricDelete();
+      if (mounted) setState(() => _error = S.of(context).t('error_generic'));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    final text = Theme.of(context).textTheme;
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(G1.s4, 0, G1.s4, G1.s4),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Text(s.t('bio_enroll_title'), style: text.titleLarge),
+          const SizedBox(height: G1.s1),
+          Text(s.t('bio_enroll_body'), style: text.bodySmall, textAlign: TextAlign.center),
+          const SizedBox(height: G1.s6),
+          PinPad(onComplete: _enroll, error: _error, busy: _busy),
+        ]),
       ),
     );
   }

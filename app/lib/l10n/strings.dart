@@ -27,6 +27,13 @@ class S {
 
   static const _strings = <String, Map<String, String>>{
     'en': {
+      'bio_setting': 'Confirm payments with fingerprint or face',
+      'bio_setting_body': 'On this phone only. You can still use your PIN.',
+      'bio_enroll_title': 'Enter your PIN to turn this on',
+      'bio_enroll_body':
+          'After this, a fingerprint or face check on this phone can confirm payments instead of your PIN.',
+      'bio_prompt_title': 'Confirm {amount}',
+      'bio_use_pin': 'Use PIN',
       'notifications': 'Notifications',
       'notifications_unread': '{n} unread',
       'notifications_empty':
@@ -142,6 +149,12 @@ class S {
       'retry': 'Retry',
     },
     'am': {
+      'bio_setting': 'ክፍያዎችን በጣት አሻራ ወይም በፊት ያረጋግጡ',
+      'bio_setting_body': 'በዚህ ስልክ ላይ ብቻ። ፒንዎንም መጠቀም ይችላሉ።',
+      'bio_enroll_title': 'ይህን ለመክፈት ፒንዎን ያስገቡ',
+      'bio_enroll_body': 'ከዚህ በኋላ በዚህ ስልክ ላይ በጣት አሻራ ወይም በፊት ማረጋገጥ ከፒን ይልቅ ክፍያዎችን ማረጋገጥ ይችላል።',
+      'bio_prompt_title': '{amount} ያረጋግጡ',
+      'bio_use_pin': 'ፒን ተጠቀም',
       'notifications': 'ማሳወቂያዎች',
       'notifications_unread': '{n} ያልተነበቡ',
       'notifications_empty': 'እስካሁን ምንም የለም። ገንዘብ ሲደርስዎ፣ ክፍያ ሲጠናቀቅ እና አንድ ሰው ወደ ሂሳብዎ ሲገባ እዚህ እናሳውቅዎታለን።',
