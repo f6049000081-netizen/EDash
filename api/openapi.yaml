@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: EDash API
-  version: 0.1.0
+  version: 0.2.0
   summary: Phase 1 contract for the consumer app, merchant app and admin console.
   description: |
     Conventions
