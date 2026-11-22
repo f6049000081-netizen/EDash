@@ -117,7 +117,7 @@ QR payments split the amount three ways: debit the payer, credit the merchant se
     - `off`: ignores chains.
 
     iPhones aren't affected until the Secure Enclave side and App Attest exist. Android 6 phones can't attest, so `require` shuts them out.
-  - Checked against Google's live revocation list on 2026-11-22. The first real chain comes from a phone with app 0.7.0.
+  - Checked live on 2026-11-22 against Google's revocation list, with a real chain from a Samsung SM-F731B on app 0.7.0: StrongBox, verified boot, locked bootloader, patch level 2026-10.
 - **Biometric confirmation.** A second key in secure hardware that only works after the phone's fingerprint or face check.
   - Registered with `PUT /v1/devices/current/biometric-key` and the **PIN**. Sign-in no longer accepts a biometric key, because an SMS code alone (a SIM swap) must never set up a way to pay without the PIN.
   - Confirming: the intent carries `confirm_challenge` (intent id, amount, fee and payee); the app signs those exact bytes and sends `biometric_signature`. The key works only for the device it was registered on.
