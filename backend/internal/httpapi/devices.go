@@ -26,7 +26,7 @@ func (s *Server) listDevices(w http.ResponseWriter, r *http.Request) {
 	items := make([]map[string]any, len(list))
 	for i, d := range list {
 		items[i] = map[string]any{"id": d.ID, "platform": d.Platform, "model": d.Model, "first_seen_at": d.FirstSeen,
-			"last_active_at": d.LastActive, "current": d.Current, "biometric": d.Biometric}
+			"last_active_at": d.LastActive, "current": d.Current, "biometric": d.Biometric, "key_attestation": nullIfEmpty(d.KeyAttestation)}
 	}
 	platform.WriteJSON(w, http.StatusOK, map[string]any{"items": items})
 }
@@ -90,4 +90,11 @@ func (s *Server) failDevices(w http.ResponseWriter, err error) {
 	default:
 		s.failAuth(w, err)
 	}
+}
+
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }

@@ -48,6 +48,13 @@ class MainActivity : FlutterFragmentActivity() {
                         result.success(s.sign())
                     }
                     "dpopReset" -> { deleteKey(dpopAlias); result.success(null) }
+                    // A fresh DPoP key for a sign-in, attested with the server's challenge.
+                    "dpopCreate" -> {
+                        val challenge = call.argument<ByteArray>("challenge")!!
+                        deleteKey(dpopAlias)
+                        val pub = ensureKey(dpopAlias, biometric = false, challenge = challenge)
+                        result.success(publicPoint(pub) + mapOf("chain" to attestationChain(dpopAlias, challenge)))
+                    }
                     // The phone's name for the signed-in devices list, e.g. "Samsung SM-A515F".
                     "deviceName" -> {
                         val maker = Build.MANUFACTURER.replaceFirstChar { it.uppercase() }
@@ -57,9 +64,13 @@ class MainActivity : FlutterFragmentActivity() {
                         BiometricManager.from(this).canAuthenticate(BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS
                     )
                     "biometricCreate" -> {
+                        val challenge = call.argument<ByteArray>("challenge")
                         deleteKey(bioAlias)
-                        val pub = ensureKey(bioAlias, biometric = true)
-                        result.success(Base64.encodeToString(pub.encoded, Base64.NO_WRAP)) // SPKI DER
+                        val pub = ensureKey(bioAlias, biometric = true, challenge = challenge)
+                        result.success(mapOf(
+                            "public_key" to Base64.encodeToString(pub.encoded, Base64.NO_WRAP), // SPKI DER
+                            "chain" to attestationChain(bioAlias, challenge),
+                        ))
                     }
                     "biometricDelete" -> { deleteKey(bioAlias); result.success(null) }
                     "biometricEnrolled" -> result.success(keyStore().containsAlias(bioAlias))
@@ -92,8 +103,20 @@ class MainActivity : FlutterFragmentActivity() {
         if (ks.containsAlias(alias)) ks.deleteEntry(alias)
     }
 
-    /** Returns the existing public key for [alias], or creates the key pair. */
-    private fun ensureKey(alias: String, biometric: Boolean): ECPublicKey {
+    /**
+     * The key's attestation certificate chain (leaf first, DER), or empty when the key was made without a
+     * challenge or the phone can't attest (Android 6).
+     */
+    private fun attestationChain(alias: String, challenge: ByteArray?): List<ByteArray> {
+        if (challenge == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return emptyList()
+        return keyStore().getCertificateChain(alias)?.map { it.encoded } ?: emptyList()
+    }
+
+    /**
+     * Returns the existing public key for [alias], or creates the key pair. With a [challenge], the
+     * Keystore signs an attestation certificate chain that includes it (Android 7 and later).
+     */
+    private fun ensureKey(alias: String, biometric: Boolean, challenge: ByteArray? = null): ECPublicKey {
         keyStore().getCertificate(alias)?.let { return it.publicKey as ECPublicKey }
         fun spec(strongBox: Boolean): KeyGenParameterSpec {
             val b = KeyGenParameterSpec.Builder(alias, KeyProperties.PURPOSE_SIGN)
@@ -106,6 +129,7 @@ class MainActivity : FlutterFragmentActivity() {
                     b.setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG) // every use
                 }
             }
+            if (challenge != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) b.setAttestationChallenge(challenge)
             if (strongBox && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) b.setIsStrongBoxBacked(true)
             return b.build()
         }

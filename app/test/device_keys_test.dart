@@ -32,12 +32,20 @@ class FakeKeys implements DeviceKeys {
 
   @override
   Future<void> dpopReset() async => resets++;
+  final created = <Uint8List>[];
+  @override
+  Future<List<String>?> dpopCreate(Uint8List challenge) async {
+    created.add(challenge);
+    return ['bGVhZg==', 'cm9vdA=='];
+  }
+
   @override
   Future<bool> biometricAvailable() async => true;
   @override
   Future<bool> biometricEnrolled() async => true;
   @override
-  Future<String> biometricCreate() async => 'pub';
+  Future<({String publicKey, List<String> chain})> biometricCreate({Uint8List? challenge}) async =>
+      (publicKey: 'pub', chain: const <String>[]);
   @override
   Future<void> biometricDelete() async {}
   @override
@@ -100,6 +108,10 @@ void main() {
       }),
     ));
     await api.verifyOtp('c1', '123456', platform: 'android', model: 'x');
+    expect(keys.created.single, sha256.convert(utf8.encode('gebeya-one/dpop-attest/v1:c1')).bytes,
+        reason: 'a fresh key, attested with the sign-in challenge');
+    final body = jsonDecode((seen[0] as http.Request).body) as Map<String, dynamic>;
+    expect((body['device'] as Map)['key_attestation'], ['bGVhZg==', 'cm9vdA==']);
     final verify = part(seen[0].headers['DPoP']!, 1);
     expect(verify['htu'], 'http://api:8080/v1/auth/otp/verify');
     expect(verify.containsKey('ath'), isFalse);

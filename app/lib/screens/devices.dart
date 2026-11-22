@@ -9,7 +9,8 @@ import '../ui/widgets.dart';
 
 /// A phone signed in to the account.
 class SignedInDevice {
-  SignedInDevice(this.id, this.platform, this.model, this.firstSeen, this.lastActive, this.current, this.biometric);
+  SignedInDevice(this.id, this.platform, this.model, this.firstSeen, this.lastActive, this.current, this.biometric,
+      {this.keyAttestation});
   final String id;
   final String platform; // android, ios, web
   final String model;
@@ -17,6 +18,10 @@ class SignedInDevice {
   final DateTime lastActive;
   final bool current;
   final bool biometric;
+  final String? keyAttestation; // strongbox, tee, none, failed; null when not checked
+
+  /// The phone proved its sign-in key is kept in its secure hardware.
+  bool get secureKey => keyAttestation == 'strongbox' || keyAttestation == 'tee';
 
   String get name => model.isNotEmpty ? model : (platform == 'ios' ? 'iPhone' : 'Android');
 
@@ -28,6 +33,7 @@ class SignedInDevice {
         DateTime.parse(j['last_active_at'] as String).toLocal(),
         j['current'] as bool? ?? false,
         j['biometric'] as bool? ?? false,
+        keyAttestation: j['key_attestation'] as String?,
       );
 }
 
@@ -164,9 +170,10 @@ class _DevicesScreenState extends State<DevicesScreen> {
                           ? s.t('devices_this_phone')
                           : s.t('devices_last_active', {'when': formatWhen(context, d.lastActive)}),
                       s.t('devices_since', {'date': _date(d.firstSeen)}),
+                      if (d.secureKey) s.t('devices_secure_key'),
                       if (d.biometric) s.t('devices_biometric'),
                     ].join(' · ')),
-                    isThreeLine: d.biometric,
+                    isThreeLine: d.biometric || d.secureKey,
                     trailing: d.current
                         ? null
                         : TextButton(

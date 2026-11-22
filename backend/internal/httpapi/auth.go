@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/base64"
 	"errors"
 	"math"
 	"net"
@@ -43,14 +44,20 @@ func (s *Server) verifyOTP(w http.ResponseWriter, r *http.Request) {
 			Platform    string `json:"platform"`
 			Model       string `json:"model"`
 			Attestation string `json:"attestation"`
+			// The DPoP key's Android Keystore certificate chain, leaf first, base64 DER.
+			KeyAttestation []string `json:"key_attestation"`
 		} `json:"device"`
 	}
 	if !decode(w, r, &body) {
 		return
 	}
+	chain, ok := certChain(w, body.Device.KeyAttestation)
+	if !ok {
+		return
+	}
 	sess, err := s.Identity.VerifyOTP(r.Context(), body.ChallengeID, body.Code, identity.DeviceInfo{
 		Platform: body.Device.Platform, Model: body.Device.Model, Attestation: body.Device.Attestation,
-		DPoP: s.Identity.ProofFrom(r),
+		DPoP: s.Identity.ProofFrom(r), KeyAttestation: chain,
 	})
 	if err != nil {
 		s.failAuth(w, err)
@@ -234,13 +241,18 @@ func (s *Server) failAuth(w http.ResponseWriter, err error) {
 // putBiometricKey turns on biometric confirmation for this device. The PIN is required.
 func (s *Server) putBiometricKey(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		PublicKey string `json:"public_key"`
-		PIN       string `json:"pin"`
+		PublicKey      string   `json:"public_key"`
+		PIN            string   `json:"pin"`
+		KeyAttestation []string `json:"key_attestation"` // the key's Android Keystore certificate chain, base64 DER
 	}
 	if !decode(w, r, &body) {
 		return
 	}
-	if err := s.Identity.EnrollBiometric(r.Context(), platform.PrincipalFrom(r.Context()), body.PublicKey, body.PIN); err != nil {
+	chain, ok := certChain(w, body.KeyAttestation)
+	if !ok {
+		return
+	}
+	if err := s.Identity.EnrollBiometric(r.Context(), platform.PrincipalFrom(r.Context()), body.PublicKey, body.PIN, chain); err != nil {
 		s.failAuth(w, err)
 		return
 	}
@@ -253,4 +265,24 @@ func (s *Server) deleteBiometricKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// certChain decodes a base64 DER certificate chain (at most 10 certificates of 16 KB).
+func certChain(w http.ResponseWriter, in []string) ([][]byte, bool) {
+	if len(in) > 10 {
+		platform.WriteProblem(w, platform.NewProblem(http.StatusUnprocessableEntity, "validation_failed", "Check the details",
+			"key_attestation has too many certificates."))
+		return nil, false
+	}
+	out := make([][]byte, 0, len(in))
+	for _, c := range in {
+		der, err := base64.StdEncoding.DecodeString(c)
+		if err != nil || len(der) == 0 || len(der) > 16<<10 {
+			platform.WriteProblem(w, platform.NewProblem(http.StatusUnprocessableEntity, "validation_failed", "Check the details",
+				"key_attestation must be base64 DER certificates."))
+			return nil, false
+		}
+		out = append(out, der)
+	}
+	return out, true
 }

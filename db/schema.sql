@@ -65,6 +65,13 @@ CREATE TABLE identity.devices (
     model               TEXT,
     biometric_key_pub   TEXT,                   -- P-256 SPKI (base64 DER) of the device's biometric-gated key; set only with the PIN, cleared by a PIN reset
     biometric_enrolled_at TIMESTAMPTZ,
+    -- Android key attestation of the last sign-in's DPoP key (NULL: not checked, e.g. iOS or attestation off).
+    key_attestation     TEXT CHECK (key_attestation IN ('strongbox', 'tee', 'none', 'failed')),
+    verified_boot       TEXT CHECK (verified_boot IN ('verified', 'self_signed', 'unverified', 'failed')),
+    device_locked       BOOLEAN,                -- bootloader locked, as the attestation reports it
+    os_patch_level      INT,                    -- YYYYMM
+    key_attested_at     TIMESTAMPTZ,
+    biometric_key_attestation TEXT CHECK (biometric_key_attestation IN ('strongbox', 'tee', 'none', 'failed')),
     trusted             BOOLEAN NOT NULL DEFAULT FALSE,
     first_seen_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
     last_seen_at        TIMESTAMPTZ NOT NULL DEFAULT now(),

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: EDash API
-  version: 0.6.0
+  version: 0.7.0
   summary: Phase 1 contract for the consumer app, merchant app and admin console.
   description: |
     Conventions
@@ -371,6 +371,14 @@ paths:
               properties:
                 public_key: { type: string, description: 'Base64 DER SubjectPublicKeyInfo (Android) or uncompressed point (iOS).' }
                 pin: { type: string, pattern: '^[0-9]{6}$' }
+                key_attestation:
+                  type: array
+                  maxItems: 10
+                  items: { type: string, format: byte }
+                  description: >-
+                    Android: the key's Keystore certificate chain, created with the attestation challenge
+                    SHA-256("gebeya-one/biometric-attest/v1:" + the session's DPoP JWK thumbprint). It must show a
+                    hardware key that needs a biometric check for every use. Required with KEY_ATTESTATION=require.
       responses:
         '204': { description: Enrolled }
         '403': { $ref: '#/components/responses/Problem' }
@@ -1833,6 +1841,10 @@ components:
         last_active_at: { type: string, format: date-time, description: Last sign-in or token refresh }
         current: { type: boolean }
         biometric: { type: boolean, description: Payments can be confirmed with the fingerprint or face on it }
+        key_attestation:
+          type: [string, 'null']
+          enum: [strongbox, tee, none, failed, null]
+          description: The last sign-in's DPoP key check on Android; null when not checked (iPhone, or attestation off)
     TeamMember:
       type: object
       required: [user_id, role, since, you]
@@ -1885,7 +1897,7 @@ components:
         code:
           type: string
           description: Stable machine code.
-          enum: [insufficient_funds, limit_exceeded, kyc_required, payee_not_found, quote_expired, rail_unavailable, step_up_required, invalid_pin, pin_locked, idempotency_conflict, permission_denied, self_approval, validation_failed, rate_limited, unauthenticated, not_found, invalid_state, payment_blocked, internal, otp_invalid, otp_expired, sms_unavailable, device_not_trusted]
+          enum: [insufficient_funds, limit_exceeded, kyc_required, payee_not_found, quote_expired, rail_unavailable, step_up_required, invalid_pin, pin_locked, idempotency_conflict, permission_denied, self_approval, validation_failed, rate_limited, unauthenticated, not_found, invalid_state, payment_blocked, internal, otp_invalid, otp_expired, sms_unavailable, device_not_trusted, invalid_dpop_proof, this_device, invitation_gone]
         message: { type: string, description: Localised to the user's locale. }
         charged: { type: boolean, description: Present on payment failures. Tells the client whether money left the account. }
     DeviceRegistration:
@@ -1895,6 +1907,15 @@ components:
         platform: { type: string, enum: [android, ios, web] }
         model: { type: string }
         attestation: { type: string, description: Play Integrity or App Attest token. }
+        key_attestation:
+          type: array
+          maxItems: 10
+          items: { type: string, format: byte }
+          description: >-
+            Android: the Keystore certificate chain (leaf first, base64 DER) of the DPoP key this sign-in binds,
+            created with the attestation challenge SHA-256("gebeya-one/dpop-attest/v1:" + challenge_id). It proves
+            the key is in secure hardware. With KEY_ATTESTATION=require, Android sign-ins without a valid chain
+            get 403 device_not_trusted.
     Session:
       type: object
       properties:

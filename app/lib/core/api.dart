@@ -467,11 +467,20 @@ class GebeyaApi {
   /// The device's `attestation` is the install ID for now. That is enough for the dev server, which only
   /// uses it to recognise the device. Production needs a Play Integrity (Android) or App Attest (iOS)
   /// token here, and the production verifiers reject an install ID.
+  ///
+  /// On phones with hardware keys, each sign-in gets a fresh DPoP key attested with this sign-in's
+  /// challenge, and its certificate chain goes along so the server can check the key is in secure hardware.
   Future<bool> verifyOtp(String challengeId, String code, {required String platform, required String model}) async {
+    final chain = await api.keys.dpopCreate(dpopAttestChallenge(challengeId));
     final j = await api.postPublic('/v1/auth/otp/verify', {
       'challenge_id': challengeId,
       'code': code,
-      'device': {'platform': platform, 'model': model, 'attestation': await api.store.installId()},
+      'device': {
+        'platform': platform,
+        'model': model,
+        'attestation': await api.store.installId(),
+        if (chain != null && chain.isNotEmpty) 'key_attestation': chain,
+      },
     });
     await api.setTokens(Tokens.fromJson(j));
     return (j['needs_pin'] as bool?) ?? false;
@@ -565,8 +574,9 @@ class GebeyaApi {
           idempotencyKey: key));
 
   /// Registers this phone's biometric public key. The PIN is required.
-  Future<void> enrollBiometric(String publicKey, String pin) =>
-      api.put('/v1/devices/current/biometric-key', {'public_key': publicKey, 'pin': pin});
+  Future<void> enrollBiometric(String publicKey, String pin, {List<String> attestation = const []}) => api.put(
+      '/v1/devices/current/biometric-key',
+      {'public_key': publicKey, 'pin': pin, if (attestation.isNotEmpty) 'key_attestation': attestation});
 
   Future<void> removeBiometric() => api.delete('/v1/devices/current/biometric-key');
 

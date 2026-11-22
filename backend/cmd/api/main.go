@@ -11,7 +11,15 @@
 //	OTP_ALLOWED_PREFIXES  comma-separated E.164 prefixes codes may be sent to (default: Ethiopia + diaspora list)
 //	PUBLIC_BASE_URL       the API's URL as apps see it (e.g. https://api.example.et), for checking DPoP
 //	                      proofs behind a proxy. Unset: taken from the request's Host.
-//	DPOP_REQUIRED         "true": every sign-in must bind its session to a device key (DPoP).
+//	DPOP_REQUIRED         platforms whose sign-ins and refreshes must bind the session to a device key
+//	                      (DPoP): "android", "android,ios", or "true" for all. Unset: none.
+//	KEY_ATTESTATION       Android key attestation of the DPoP and biometric keys: "off", "record"
+//	                      (default: check and keep the outcome on the device) or "require" (refuse
+//	                      Android sign-ins and fingerprint set-up without a key proven to be in secure
+//	                      hardware; implies DPoP on Android). Revocations come from Google's status list.
+//	ANDROID_PACKAGE       application ID the keys must belong to (default one.gebeya.gebeya_one)
+//	ANDROID_SIGNER_SHA256 comma-separated SHA-256 (hex) of the app signing certificates allowed. Unset:
+//	                      not checked (dev builds are signed with a local key).
 //	OTP_RESEND_SECONDS    minimum gap between sign-in codes to one number (default 30)
 //	OTP_HOURLY_MAX        sign-in codes per number per hour (default 5)
 //	CLIENT_IP_HEADER      header a trusted proxy sets with the client address, e.g. CF-Connecting-IP
@@ -29,6 +37,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -46,6 +55,7 @@ import (
 	"superapp/backend/internal/commerce"
 	"superapp/backend/internal/httpapi"
 	"superapp/backend/internal/identity"
+	"superapp/backend/internal/keyattest"
 	"superapp/backend/internal/kyb"
 	"superapp/backend/internal/ledger"
 	"superapp/backend/internal/merchants"
@@ -91,7 +101,42 @@ func run(log *slog.Logger) error {
 	}
 	cfg := identity.DefaultConfig()
 	cfg.PublicBaseURL = os.Getenv("PUBLIC_BASE_URL")
-	cfg.DPoPRequired = os.Getenv("DPOP_REQUIRED") == "true"
+	switch v := os.Getenv("DPOP_REQUIRED"); v {
+	case "", "false":
+	case "true":
+		cfg.DPoPRequired = []string{"android", "ios", "web"}
+	default:
+		for _, p := range strings.Split(v, ",") {
+			p = strings.TrimSpace(p)
+			if p != "android" && p != "ios" && p != "web" {
+				return fmt.Errorf("DPOP_REQUIRED: unknown platform %q", p)
+			}
+			cfg.DPoPRequired = append(cfg.DPoPRequired, p)
+		}
+	}
+	cfg.KeyAttestation = os.Getenv("KEY_ATTESTATION")
+	switch cfg.KeyAttestation {
+	case "":
+		cfg.KeyAttestation = identity.AttestRecord
+	case identity.AttestOff, identity.AttestRecord, identity.AttestRequire:
+	default:
+		return fmt.Errorf("KEY_ATTESTATION: want off, record or require, got %q", cfg.KeyAttestation)
+	}
+	attester := &keyattest.Verifier{Roots: keyattest.GoogleRoots(), Status: &keyattest.StatusList{},
+		Package: "one.gebeya.gebeya_one"}
+	if v := os.Getenv("ANDROID_PACKAGE"); v != "" {
+		attester.Package = v
+	}
+	for _, h := range strings.Split(os.Getenv("ANDROID_SIGNER_SHA256"), ",") {
+		if h = strings.ReplaceAll(strings.TrimSpace(h), ":", ""); h == "" {
+			continue
+		}
+		d, err := hex.DecodeString(h)
+		if err != nil || len(d) != 32 {
+			return fmt.Errorf("ANDROID_SIGNER_SHA256: %q isn't a SHA-256 in hex", h)
+		}
+		attester.SignerDigests = append(attester.SignerDigests, d)
+	}
 	if v := os.Getenv("OTP_ALLOWED_PREFIXES"); v != "" {
 		cfg.AllowedPrefixes = strings.Split(v, ",")
 	}
@@ -125,6 +170,9 @@ func run(log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	ids.KeyAttester = attester
+	log.Info("device keys", "dpop_required", cfg.DPoPRequired, "key_attestation", cfg.KeyAttestation,
+		"signer_checked", len(attester.SignerDigests) > 0)
 	l := ledger.New()
 	svc := payments.NewService(pool, l, payments.DefaultRules(), &platform.PINVerifier{Pool: pool})
 	svc.Biometric = &platform.BiometricVerifier{Pool: pool}

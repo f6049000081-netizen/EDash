@@ -25,6 +25,8 @@ type Device struct {
 	LastActive time.Time // last sign-in or token refresh, so within a token's lifetime of the last use
 	Current    bool
 	Biometric  bool // payments can be confirmed with the fingerprint or face on it
+	// KeyAttestation is the last sign-in's DPoP key check: strongbox, tee, none, failed, or "" (not checked).
+	KeyAttestation string
 }
 
 // Devices lists the phones signed in to the account, this one first, then the most recently used.
@@ -32,7 +34,7 @@ func (s *Service) Devices(ctx context.Context, p platform.Principal) ([]Device, 
 	rows, err := s.Pool.Query(ctx, `
 		SELECT d.id, d.platform, coalesce(d.model, ''), d.first_seen_at,
 		       (SELECT max(x.created_at) FROM identity.sessions x WHERE x.device_id = d.id),
-		       d.id = $2, d.biometric_key_pub IS NOT NULL
+		       d.id = $2, d.biometric_key_pub IS NOT NULL, coalesce(d.key_attestation, '')
 		FROM identity.devices d
 		WHERE d.user_id = $1 AND d.revoked_at IS NULL
 		  AND EXISTS (SELECT 1 FROM identity.sessions x
@@ -43,7 +45,7 @@ func (s *Service) Devices(ctx context.Context, p platform.Principal) ([]Device, 
 	}
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (Device, error) {
 		var d Device
-		err := r.Scan(&d.ID, &d.Platform, &d.Model, &d.FirstSeen, &d.LastActive, &d.Current, &d.Biometric)
+		err := r.Scan(&d.ID, &d.Platform, &d.Model, &d.FirstSeen, &d.LastActive, &d.Current, &d.Biometric, &d.KeyAttestation)
 		return d, err
 	})
 }
@@ -113,7 +115,8 @@ func (s *Service) SignOutOtherDevices(ctx context.Context, p platform.Principal,
 func (s *Service) signOut(ctx context.Context, tx pgx.Tx, user uuid.UUID, devices []uuid.UUID) (int, error) {
 	now := s.now()
 	rows, err := tx.Query(ctx, `
-		UPDATE identity.devices SET revoked_at = $3, biometric_key_pub = NULL, biometric_enrolled_at = NULL
+		UPDATE identity.devices SET revoked_at = $3, biometric_key_pub = NULL, biometric_enrolled_at = NULL,
+		                             biometric_key_attestation = NULL
 		WHERE user_id = $1 AND id = ANY($2) AND revoked_at IS NULL
 		RETURNING id, platform, coalesce(model, '')`, user, devices, now)
 	if err != nil {

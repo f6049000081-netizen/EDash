@@ -12,6 +12,7 @@ package identity
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -44,7 +45,8 @@ type Config struct {
 	AccessTTL       time.Duration
 	RefreshTTL      time.Duration // idle lifetime; each refresh extends it
 	PINResetWindow  time.Duration // how long a pin_reset session may set a new PIN without the old one
-	DPoPRequired    bool          // refuse sign-ins and refreshes that don't bind the session to a device key
+	DPoPRequired    []string      // platforms whose sign-ins and refreshes must bind the session to a device key
+	KeyAttestation  string        // AttestOff, AttestRecord or AttestRequire (Android key attestation)
 	PublicBaseURL   string        // the API's URL as clients see it, for checking DPoP proofs behind a proxy
 }
 
@@ -78,7 +80,9 @@ type Service struct {
 	PIN    *platform.PINVerifier
 	Cfg    Config
 	Log    *slog.Logger
-	Now    func() time.Time
+	// KeyAttester checks Android key attestation when Cfg.KeyAttestation isn't off.
+	KeyAttester KeyAttester
+	Now         func() time.Time
 
 	otpKey []byte
 	ips    *ipLimiter
@@ -242,6 +246,9 @@ type DeviceInfo struct {
 	// DPoP binds the new session to the device's key. Biometric keys are not taken at sign-in: an SMS
 	// code alone must never be enough to set up a way to pay without the PIN (see EnrollBiometric).
 	DPoP DPoPProof
+	// KeyAttestation is the Android Keystore certificate chain of the DPoP key (leaf first, DER), created
+	// with DPoPAttestChallenge(challenge id).
+	KeyAttestation [][]byte
 }
 
 type Session struct {
@@ -262,7 +269,7 @@ func (s *Service) VerifyOTP(ctx context.Context, challengeID uuid.UUID, code str
 	default:
 		return nil, &ValidationError{"device.platform must be android, ios or web"}
 	}
-	if len(dev.Model) > 100 {
+	if len(dev.Model) > 100 || len(dev.KeyAttestation) > 10 {
 		return nil, &ValidationError{"device details are too long"}
 	}
 	att, err := s.Attest.Verify(ctx, dev.Platform, dev.Attestation, challengeID)
@@ -271,10 +278,20 @@ func (s *Service) VerifyOTP(ctx context.Context, challengeID uuid.UUID, code str
 	}
 
 	now := s.now()
-	jkt, err := s.bindKey(ctx, dev.DPoP, now)
+	jkt, err := s.bindKey(ctx, dev.DPoP, dev.Platform, now)
 	if err != nil {
 		return nil, err
 	}
+	// Checked before the code is used up: a refused key shouldn't cost the person their code.
+	var sameKey func(*ecdsa.PublicKey) bool
+	if jkt != "" {
+		sameKey = func(k *ecdsa.PublicKey) bool { return jktOf(k) == jkt }
+	}
+	kc, err := s.checkKey(ctx, dev.Platform, dev.KeyAttestation, DPoPAttestChallenge(challengeID.String()), sameKey, false)
+	if err != nil {
+		return nil, err
+	}
+	kOutcome, kBoot, kLocked, kPatch := kc.columns()
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -350,15 +367,22 @@ func (s *Service) VerifyOTP(ctx context.Context, challengeID uuid.UUID, code str
 	var deviceID uuid.UUID
 	var newDevice bool
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO identity.devices (id, user_id, fingerprint_hash, platform, model, first_seen_at, last_seen_at)
-		VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6, $6)
+		INSERT INTO identity.devices (id, user_id, fingerprint_hash, platform, model, first_seen_at, last_seen_at,
+			key_attestation, verified_boot, device_locked, os_patch_level, key_attested_at)
+		VALUES ($1, $2, $3, $4, NULLIF($5, ''), $6, $6, $7, $8, $9, $10, CASE WHEN $7::text IS NULL THEN NULL ELSE $6::timestamptz END)
 		ON CONFLICT (user_id, fingerprint_hash) DO UPDATE SET
 			platform = EXCLUDED.platform,
 			model = COALESCE(EXCLUDED.model, identity.devices.model),
 			last_seen_at = EXCLUDED.last_seen_at,
-			revoked_at = NULL
+			revoked_at = NULL,
+			-- a sign-in whose key wasn't checked keeps the last check's outcome
+			key_attestation = COALESCE(EXCLUDED.key_attestation, identity.devices.key_attestation),
+			verified_boot = CASE WHEN EXCLUDED.key_attestation IS NULL THEN identity.devices.verified_boot ELSE EXCLUDED.verified_boot END,
+			device_locked = CASE WHEN EXCLUDED.key_attestation IS NULL THEN identity.devices.device_locked ELSE EXCLUDED.device_locked END,
+			os_patch_level = CASE WHEN EXCLUDED.key_attestation IS NULL THEN identity.devices.os_patch_level ELSE EXCLUDED.os_patch_level END,
+			key_attested_at = COALESCE(EXCLUDED.key_attested_at, identity.devices.key_attested_at)
 		RETURNING id, (xmax = 0)`,
-		deviceRowID, userID, att.Fingerprint, dev.Platform, dev.Model, now).Scan(&deviceID, &newDevice); err != nil {
+		deviceRowID, userID, att.Fingerprint, dev.Platform, dev.Model, now, kOutcome, kBoot, kLocked, kPatch).Scan(&deviceID, &newDevice); err != nil {
 		return nil, err
 	}
 
@@ -463,9 +487,9 @@ func (s *Service) session(user, family, device uuid.UUID, refresh string, needsP
 }
 
 // bindKey checks the sign-in's DPoP proof, if any, and returns the key thumbprint to bind ("" for none).
-func (s *Service) bindKey(ctx context.Context, p DPoPProof, now time.Time) (string, error) {
+func (s *Service) bindKey(ctx context.Context, p DPoPProof, platform string, now time.Time) (string, error) {
 	if p.Header == "" {
-		if s.Cfg.DPoPRequired {
+		if s.dpopRequired(platform) {
 			return "", ErrDPoP
 		}
 		return "", nil
@@ -530,20 +554,20 @@ func (s *Service) Refresh(ctx context.Context, token string, proof DPoPProof) (*
 	if !now.Before(expires) {
 		return nil, ErrSessionInvalid
 	}
+	var status, devicePlatform string
+	var deviceRevoked *time.Time
+	if err := tx.QueryRow(ctx, `
+		SELECT u.status, d.revoked_at, d.platform FROM identity.users u JOIN identity.devices d ON d.user_id = u.id
+		WHERE u.id = $1 AND d.id = $2`, user, device).Scan(&status, &deviceRevoked, &devicePlatform); err != nil {
+		return nil, err
+	}
 	switch {
 	case boundJKT != nil && *boundJKT != jkt:
 		// A stolen refresh token without the device key. Don't revoke: that would let anyone who saw
 		// the token sign the real user out.
 		return nil, ErrDPoP
-	case boundJKT == nil && jkt == "" && s.Cfg.DPoPRequired:
+	case boundJKT == nil && jkt == "" && s.dpopRequired(devicePlatform):
 		return nil, ErrDPoP
-	}
-	var status string
-	var deviceRevoked *time.Time
-	if err := tx.QueryRow(ctx, `
-		SELECT u.status, d.revoked_at FROM identity.users u JOIN identity.devices d ON d.user_id = u.id
-		WHERE u.id = $1 AND d.id = $2`, user, device).Scan(&status, &deviceRevoked); err != nil {
-		return nil, err
 	}
 	if status == "closed" || deviceRevoked != nil {
 		if _, err := s.revokeFamily(ctx, tx, family, now); err != nil {
@@ -859,13 +883,47 @@ func (s *Service) now() time.Time {
 // EnrollBiometric registers this device's biometric-gated public key so payments can be confirmed with
 // the fingerprint or face check instead of the PIN. It needs the PIN (wrong PINs count toward the
 // lockout), so an SMS code alone can never set it up. Any earlier key on the device is replaced.
-func (s *Service) EnrollBiometric(ctx context.Context, p platform.Principal, publicKey, pin string) error {
+//
+// On Android, [attestation] is the biometric key's Keystore certificate chain, created with
+// BiometricAttestChallenge(the session's DPoP thumbprint). It proves the key is in secure hardware and
+// usable only after a biometric check; in require mode enrolment needs it.
+func (s *Service) EnrollBiometric(ctx context.Context, p platform.Principal, publicKey, pin string, attestation [][]byte) error {
 	key, err := platform.ParseBiometricKey(strings.TrimSpace(publicKey))
 	if err != nil {
 		return &ValidationError{"public_key: " + err.Error()}
 	}
+	if len(attestation) > 10 {
+		return &ValidationError{"key_attestation: too many certificates"}
+	}
 	if err := s.PIN.Verify(ctx, p.UserID, pin); err != nil {
 		return err
+	}
+	var devicePlatform string
+	var jkt *string
+	err = s.Pool.QueryRow(ctx, `
+		SELECT d.platform, (SELECT x.dpop_jkt FROM identity.sessions x
+		                    WHERE x.family_id = $3 AND x.device_id = d.id AND x.revoked_at IS NULL
+		                    ORDER BY x.created_at DESC LIMIT 1)
+		FROM identity.devices d WHERE d.id = $1 AND d.user_id = $2`, p.DeviceID, p.UserID, p.SessionID).Scan(&devicePlatform, &jkt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrSessionInvalid
+	}
+	if err != nil {
+		return err
+	}
+	var challenge []byte
+	var sameKey func(*ecdsa.PublicKey) bool
+	if jkt != nil { // without a DPoP-bound session there's nothing to tie the attestation to
+		challenge = BiometricAttestChallenge(*jkt)
+		sameKey = func(k *ecdsa.PublicKey) bool { return spkiOf(k) == key }
+	}
+	kc, err := s.checkKey(ctx, devicePlatform, attestation, challenge, sameKey, true)
+	if err != nil {
+		return err
+	}
+	var outcome *string
+	if kc.Outcome != "" {
+		outcome = &kc.Outcome
 	}
 	tx, err := s.Pool.Begin(ctx)
 	if err != nil {
@@ -873,8 +931,8 @@ func (s *Service) EnrollBiometric(ctx context.Context, p platform.Principal, pub
 	}
 	defer tx.Rollback(ctx) //nolint:errcheck // no-op after Commit
 	tag, err := tx.Exec(ctx, `
-		UPDATE identity.devices SET biometric_key_pub = $3, biometric_enrolled_at = $4
-		WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL`, p.DeviceID, p.UserID, key, s.now())
+		UPDATE identity.devices SET biometric_key_pub = $3, biometric_enrolled_at = $4, biometric_key_attestation = $5
+		WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL`, p.DeviceID, p.UserID, key, s.now(), outcome)
 	if err != nil {
 		return err
 	}
@@ -893,7 +951,7 @@ func (s *Service) EnrollBiometric(ctx context.Context, p platform.Principal, pub
 // RemoveBiometric turns biometric confirmation off on this device.
 func (s *Service) RemoveBiometric(ctx context.Context, p platform.Principal) error {
 	_, err := s.Pool.Exec(ctx, `
-		UPDATE identity.devices SET biometric_key_pub = NULL, biometric_enrolled_at = NULL
+		UPDATE identity.devices SET biometric_key_pub = NULL, biometric_enrolled_at = NULL, biometric_key_attestation = NULL
 		WHERE id = $1 AND user_id = $2`, p.DeviceID, p.UserID)
 	return err
 }

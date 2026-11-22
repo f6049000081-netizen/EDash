@@ -31,11 +31,17 @@ abstract class DeviceKeys {
   /// Forget the DPoP key, so the next sign-in binds a fresh one.
   Future<void> dpopReset();
 
+  /// Replaces the DPoP key with a new one attested with [challenge] (see [dpopAttestChallenge]). Returns
+  /// its attestation certificate chain (base64 DER, leaf first; empty if the phone can't attest), or null
+  /// when there are no hardware keys.
+  Future<List<String>?> dpopCreate(Uint8List challenge);
+
   Future<bool> biometricAvailable();
   Future<bool> biometricEnrolled();
 
-  /// Creates a new biometric-gated key and returns its public key (base64 DER SPKI).
-  Future<String> biometricCreate();
+  /// Creates a new biometric-gated key, attested with [challenge] when given (see
+  /// [biometricAttestChallenge]). Returns its public key (base64 DER SPKI) and attestation chain.
+  Future<({String publicKey, List<String> chain})> biometricCreate({Uint8List? challenge});
   Future<void> biometricDelete();
 
   /// Shows the system fingerprint/face prompt and signs [data]. Returns a base64 DER signature or
@@ -53,11 +59,14 @@ class NoDeviceKeys implements DeviceKeys {
   @override
   Future<void> dpopReset() async {}
   @override
+  Future<List<String>?> dpopCreate(Uint8List challenge) async => null;
+  @override
   Future<bool> biometricAvailable() async => false;
   @override
   Future<bool> biometricEnrolled() async => false;
   @override
-  Future<String> biometricCreate() => throw UnsupportedError('no device keys');
+  Future<({String publicKey, List<String> chain})> biometricCreate({Uint8List? challenge}) =>
+      throw UnsupportedError('no device keys');
   @override
   Future<void> biometricDelete() async {}
   @override
@@ -112,13 +121,27 @@ class ChannelDeviceKeys implements DeviceKeys {
   }
 
   @override
+  Future<List<String>?> dpopCreate(Uint8List challenge) async {
+    _jwk = null;
+    final m = await _call<Map<Object?, Object?>>('dpopCreate', {'challenge': challenge});
+    if (m == null) return null;
+    _jwk = (x: m['x'] as String, y: m['y'] as String);
+    return _chain(m['chain']);
+  }
+
+  static List<String> _chain(Object? c) => [for (final b in (c as List?) ?? const []) base64.encode(b as List<int>)];
+
+  @override
   Future<bool> biometricAvailable() async => (await _call<bool>('biometricAvailable')) ?? false;
 
   @override
   Future<bool> biometricEnrolled() async => (await _call<bool>('biometricEnrolled')) ?? false;
 
   @override
-  Future<String> biometricCreate() async => (await _call<String>('biometricCreate'))!;
+  Future<({String publicKey, List<String> chain})> biometricCreate({Uint8List? challenge}) async {
+    final m = (await _call<Map<Object?, Object?>>('biometricCreate', {if (challenge != null) 'challenge': challenge}))!;
+    return (publicKey: m['public_key'] as String, chain: _chain(m['chain']));
+  }
 
   @override
   Future<void> biometricDelete() => _call<void>('biometricDelete');
@@ -143,6 +166,22 @@ class ChannelDeviceKeys implements DeviceKeys {
 }
 
 String _enc(List<int> b) => base64Url.encode(b).replaceAll('=', '');
+
+/// The attestation challenge for the DPoP key of a sign-in. The server computes the same from the code's
+/// challenge ID, so the key's attestation can't be reused for another sign-in.
+Uint8List dpopAttestChallenge(String challengeId) =>
+    Uint8List.fromList(sha256.convert(utf8.encode('gebeya-one/dpop-attest/v1:$challengeId')).bytes);
+
+/// The attestation challenge for the biometric key: tied to this session's DPoP key ([jkt]).
+Uint8List biometricAttestChallenge(String jkt) =>
+    Uint8List.fromList(sha256.convert(utf8.encode('gebeya-one/biometric-attest/v1:$jkt')).bytes);
+
+/// The RFC 7638 thumbprint of the DPoP key, as the server binds sessions to it; null without keys.
+Future<String?> dpopThumbprint(DeviceKeys keys) async {
+  final k = await keys.dpopPublicKey();
+  if (k == null) return null;
+  return _enc(sha256.convert(utf8.encode('{"crv":"P-256","kty":"EC","x":"${k.x}","y":"${k.y}"}')).bytes);
+}
 
 /// Builds a DPoP proof (RFC 9449) for one request, or returns null when the device has no key.
 /// [url] must be scheme://host[:port]/path, without query, as the server sees it.

@@ -29,7 +29,7 @@ void main() {
   testWidgets('another phone is signed out with the PIN; a wrong PIN stays on the pad', (tester) async {
     var list = [
       device('d1', 'Samsung SM-A515F', current: true),
-      device('d2', 'Tecno Spark 10', biometric: true),
+      {...device('d2', 'Tecno Spark 10', biometric: true), 'key_attestation': 'tee'},
     ];
     final pins = <String>[];
     await pump(tester, const DevicesScreen(), {
@@ -46,6 +46,7 @@ void main() {
     expect(find.text('Samsung SM-A515F'), findsOneWidget);
     expect(find.textContaining('This phone'), findsOneWidget);
     expect(find.textContaining('fingerprint payments on'), findsOneWidget);
+    expect(find.textContaining('key in secure hardware'), findsOneWidget);
     expect(find.text('Sign out all other phones'), findsNothing); // only one other phone
 
     await tester.tap(find.text('Sign out'));

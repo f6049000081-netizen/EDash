@@ -92,9 +92,32 @@ QR payments split the amount three ways: debit the payer, credit the merchant se
 - **DPoP** (RFC 9449, ES256 only, since that's what Android Keystore and the iOS Secure Enclave hold). The app keeps a key pair in secure hardware and signs a short proof for every request (method, URL, time, a one-time id, and the access token's hash).
   - A sign-in carrying a proof binds the session to that key (`token_type: DPoP`, `cnf.jkt` in the token). From then on the token is useless without the key: as a bearer token, with another key, with a replayed or stale proof, or for another URL, it gets 401.
   - Refreshing a bound session needs a proof from the same key. A refresh token stolen alone gets `invalid_dpop_proof`, and it doesn't sign the owner out.
-  - Sessions from app versions without DPoP keep working as bearer sessions; the first refresh with a proof binds them. Set `DPOP_REQUIRED=true` once every app in use sends proofs.
+  - Sessions from app versions without DPoP keep working as bearer sessions; the first refresh with a proof binds them.
+  - `DPOP_REQUIRED` lists the platforms whose sign-ins and refreshes must bind a key: `android` now (every Android build since 0.2 sends proofs), `android,ios` once the iPhone side exists, or `true` for all. An unbound session from such a platform must sign in again at its next refresh.
   - Proof `htu` is checked against `PUBLIC_BASE_URL` + path, or against the request's own host when that isn't set. Set it when the API sits behind a proxy.
   - Used proofs are kept in `identity.dpop_proofs` until they expire, so each is accepted once.
+- **Key attestation (Android)** (`internal/keyattest`, `identity/keycheck.go`). It proves the keys really are in the phone's secure hardware, not in software that could copy them.
+  - **The DPoP key:** at each sign-in the app makes a fresh key with the attestation challenge `SHA-256("gebeya-one/dpop-attest/v1:" + challenge_id)` and sends the Keystore's certificate chain as `device.key_attestation`. A chain from another sign-in doesn't match.
+  - **The biometric key:** made with `SHA-256("gebeya-one/biometric-attest/v1:" + the session's DPoP thumbprint)`. It must also need a biometric check for every use.
+  - **What the server checks:**
+    - Every certificate is signed by the next.
+    - The chain ends at a Google attestation root, trusted by public key: the RSA root and Key Attestation CA1 (ECDSA, signing since 1 February 2026), embedded from https://android.googleapis.com/attestation/root.
+    - Intermediates are in date.
+    - No certificate is on Google's revocation list (https://android.googleapis.com/attestation/status). The list is cached for 12 hours, the old copy is kept if a refresh fails, and if it has never loaded the chain is still checked, just not against the list.
+    - Only the leaf carries the attestation extension.
+    - The security level is TEE or StrongBox.
+    - The challenge matches.
+    - The key is a P-256 signing key generated on the phone.
+    - The key is the one the session or biometric registration uses.
+    - It belongs to `ANDROID_PACKAGE`, signed with one of the certificates in `ANDROID_SIGNER_SHA256` when that's set.
+  - **What's kept:** the outcome is stored on the device (`key_attestation`: `strongbox`, `tee`, `none` or `failed`), along with the verified-boot state, whether the bootloader is locked, and the OS patch level. The biometric key's outcome goes in `biometric_key_attestation`. `GET /v1/me/devices` shows `key_attestation`. An unlocked bootloader or unverified boot is recorded, not refused: the key is still in hardware, and acting on it is a risk decision for later.
+  - **`KEY_ATTESTATION`:**
+    - `record` (the default): checks and stores, never refuses.
+    - `require`: refuses Android sign-ins (403 `device_not_trusted`) and fingerprint set-up without a valid chain, and implies DPoP on Android.
+    - `off`: ignores chains.
+
+    iPhones aren't affected until the Secure Enclave side and App Attest exist. Android 6 phones can't attest, so `require` shuts them out.
+  - Checked against Google's live revocation list on 2026-11-22. The first real chain comes from a phone with app 0.7.0.
 - **Biometric confirmation.** A second key in secure hardware that only works after the phone's fingerprint or face check.
   - Registered with `PUT /v1/devices/current/biometric-key` and the **PIN**. Sign-in no longer accepts a biometric key, because an SMS code alone (a SIM swap) must never set up a way to pay without the PIN.
   - Confirming: the intent carries `confirm_challenge` (intent id, amount, fee and payee); the app signs those exact bytes and sends `biometric_signature`. The key works only for the device it was registered on.
@@ -454,8 +477,9 @@ curl -X POST localhost:8080/v1/auth/otp/verify -H 'Content-Type: application/jso
   - Map telebirr's statement file to the recon CSV and schedule the daily run.
   - Add in-app checkout.
   - Show reconciliation exceptions in the admin console.
-- **Device keys in the app:** the server side of DPoP and biometric confirmation is done; the app still has to create the hardware keys and send proofs. Then switch on `DPOP_REQUIRED`.
-- **Key attestation:** check Android key attestation and App Attest so the server knows the DPoP and biometric keys really live in secure hardware.
+- **Production device-key settings:** once phones run app 0.7.0, set `KEY_ATTESTATION=require`, `DPOP_REQUIRED=android` and `ANDROID_SIGNER_SHA256` (the Play app signing certificate).
+- **iPhone:** the Secure Enclave keys and App Attest, then `DPOP_REQUIRED=android,ios`.
+- **Risk use of device signals:** for example, review payments from phones whose boot isn't verified or whose patch level is very old.
 - **Payout partner:** connect a licensed payout rail (telebirr B2C, EthSwitch) once credentials exist, and add reversing failed payouts to the operations console.
 - **Operations console:** connect the company identity provider with hardware-key MFA; refunds for held top-ups through the partner; an AML compliance view for escalated cases; risk cases for merchants.
 - **Document storage for production:** choose the provider (see KYB documents), then set `S3_*` and `DOCS_KEYS` from the secrets manager. Add malware scanning of uploads before staff open them.

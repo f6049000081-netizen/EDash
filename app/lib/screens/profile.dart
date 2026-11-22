@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../core/api.dart';
 import '../core/app_state.dart';
+import '../core/device_keys.dart';
 import '../core/phone.dart';
 import '../l10n/strings.dart';
 import '../ui/theme.dart';
@@ -364,8 +365,9 @@ class _BiometricEnrollSheetState extends State<_BiometricEnrollSheet> {
       _error = null;
     });
     try {
-      final pub = await keys.biometricCreate();
-      await app.api.enrollBiometric(pub, pin);
+      final jkt = await dpopThumbprint(keys);
+      final key = await keys.biometricCreate(challenge: jkt == null ? null : biometricAttestChallenge(jkt));
+      await app.api.enrollBiometric(key.publicKey, pin, attestation: key.chain);
       if (mounted) Navigator.of(context).pop(true);
     } on ApiProblem catch (p) {
       await keys.biometricDelete();
