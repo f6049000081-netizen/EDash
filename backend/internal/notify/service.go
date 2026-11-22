@@ -26,6 +26,7 @@ var Topics = []string{
 	"payment.succeeded", "payment.failed", "payment.held",
 	"identity.signed_in", "identity.pin_reset", "identity.pin_changed", "identity.refresh_token_reused",
 	"identity.biometric_enrolled",
+	"payout.settled", "payout.on_hold", "merchant.payout_destination_changed",
 }
 
 // Push is what a device shows. Data lets the app open the right screen.
@@ -76,6 +77,13 @@ type identityEvent struct {
 // Handle implements outbox.Handler. It is idempotent: a redelivered event adds nothing.
 func (s *Service) Handle(ctx context.Context, m outbox.Message) error {
 	switch {
+	case strings.HasPrefix(m.Topic, "payout.") || m.Topic == "merchant.payout_destination_changed":
+		var ev merchantEvent
+		if err := json.Unmarshal(m.Payload, &ev); err != nil {
+			s.warn("unreadable merchant event", m, err)
+			return nil
+		}
+		return s.merchant(ctx, m, ev)
 	case strings.HasPrefix(m.Topic, "payment."):
 		var ev paymentEvent
 		if err := json.Unmarshal(m.Payload, &ev); err != nil {
@@ -180,6 +188,63 @@ func (s *Service) security(ctx context.Context, m outbox.Message, ev identityEve
 		return nil
 	}
 	return s.add(ctx, m, ev.UserID, kind, args, map[string]string{"kind": "security"})
+}
+
+type merchantEvent struct {
+	MerchantID  uuid.UUID   `json:"merchant_id"`
+	PayoutID    uuid.UUID   `json:"payout_id"`
+	Net         money.Money `json:"net"`
+	Reason      string      `json:"reason"`
+	Destination string      `json:"destination"`
+	Label       string      `json:"label"`
+	EffectiveAt time.Time   `json:"effective_at"`
+}
+
+// merchant tells a shop's owners and accountants about payouts and payout-account changes.
+func (s *Service) merchant(ctx context.Context, m outbox.Message, ev merchantEvent) error {
+	var shop string
+	if err := s.Pool.QueryRow(ctx, `SELECT trade_name FROM merchant.merchants WHERE id = $1`, ev.MerchantID).Scan(&shop); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	args := map[string]string{"shop": shop, "amount": ev.Net.Display(), "destination": ev.Destination}
+	data := map[string]string{"merchant_id": ev.MerchantID.String()}
+	var kind string
+	switch m.Topic {
+	case "payout.settled":
+		kind = "payout_settled"
+		data["payout_id"] = ev.PayoutID.String()
+	case "payout.on_hold":
+		kind = "payout_on_hold_" + ev.Reason
+		if _, ok := texts["en"][kind+".body"]; !ok {
+			kind = "payout_on_hold"
+		}
+		data["payout_id"] = ev.PayoutID.String()
+	case "merchant.payout_destination_changed":
+		kind = "payout_destination_changed"
+		args["destination"] = ev.Label
+		args["when"] = ev.EffectiveAt.In(time.FixedZone("EAT", 3*60*60)).Format("2 Jan 2006, 15:04")
+		data["kind"] = "security"
+	default:
+		return nil
+	}
+	rows, err := s.Pool.Query(ctx, `
+		SELECT user_id FROM merchant.members WHERE merchant_id = $1 AND role IN ('owner', 'accountant')`, ev.MerchantID)
+	if err != nil {
+		return err
+	}
+	users, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+	if err != nil {
+		return err
+	}
+	for _, u := range users {
+		if err := s.add(ctx, m, u, kind, args, data); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // add stores one notification and pushes it. A repeat of the same event for the same user is ignored.

@@ -677,7 +677,6 @@ paths:
                 tin: { type: string, pattern: '^[0-9]{10}$' }
                 business_licence: { type: string }
                 category_code: { type: string }
-                payout_funding_source_id: { type: string, format: uuid }
       responses:
         '201':
           description: Application received; status is `kyb_review`
@@ -711,6 +710,10 @@ paths:
     get:
       tags: [Merchants]
       summary: Payout history with commission and fee breakdown
+      description: |
+        Owners, managers and accountants. Payouts batch the merchant's unpaid QR sales on its schedule (daily
+        and weekly cut off at midnight Addis Ababa time) and are sent through a licensed payout partner. Until
+        one is connected they stay `scheduled`; the money is reserved for the merchant either way.
       operationId: listPayouts
       parameters:
         - { $ref: '#/components/parameters/Id' }
@@ -726,6 +729,51 @@ paths:
                 properties:
                   items: { type: array, items: { $ref: '#/components/schemas/Payout' } }
                   next_cursor: { type: [string, 'null'] }
+
+  /v1/merchants/{id}/payout-destination:
+    get:
+      tags: [Merchants]
+      summary: Where the merchant's payouts go
+      description: Owners, managers and accountants. 404 when no payout account is set.
+      operationId: getPayoutDestination
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200':
+          description: Current payout account
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PayoutDestination' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+    put:
+      tags: [Merchants]
+      summary: Change where payouts go
+      description: |
+        Owners only, with their PIN. Every owner and accountant is notified, and nothing is paid to the new
+        account for 48 hours (`payouts_from`), so a hijacked change can be stopped. Payouts waiting for an
+        account are scheduled for the end of that period.
+      operationId: putPayoutDestination
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rail, account, pin]
+              properties:
+                rail: { type: string, enum: [telebirr, cbe_birr, mpesa_et, ethswitch] }
+                bank_code: { type: string, description: EthSwitch participant code. Required for ethswitch. }
+                account: { type: string, description: 'Wallet number (+2519…/+2517…) or bank account number (8 to 20 digits).' }
+                pin: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PayoutDestination' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
 
   /v1/admin/risk/cases:
     get:
@@ -1059,7 +1107,7 @@ components:
       required: [id, kind, title, body, data, created_at, read]
       properties:
         id: { type: string, format: uuid }
-        kind: { type: string, enum: [money_received, payment_succeeded, payment_failed, topup_succeeded, topup_failed, topup_held, new_device, pin_reset, pin_changed, session_revoked, biometric_enrolled] }
+        kind: { type: string, enum: [money_received, payment_succeeded, payment_failed, topup_succeeded, topup_failed, topup_held, new_device, pin_reset, pin_changed, session_revoked, biometric_enrolled, payout_settled, payout_on_hold, payout_on_hold_no_destination, payout_on_hold_merchant_suspended, payout_on_hold_rejected_by_partner, payout_on_hold_too_many_failures, payout_destination_changed] }
         title: { type: string, example: Money received }
         body: { type: string, example: 'Abebe sent you ETB 150.00.' }
         data:
@@ -1112,9 +1160,21 @@ components:
         fees: { $ref: '#/components/schemas/Money' }
         refunds: { $ref: '#/components/schemas/Money' }
         net: { $ref: '#/components/schemas/Money' }
-        status: { type: string, enum: [scheduled, sent, settled, failed, on_hold] }
+        status: { type: string, enum: [scheduled, sent, settled, on_hold] }
+        hold_reason:
+          type: [string, 'null']
+          enum: [no_destination, merchant_suspended, rejected_by_partner, too_many_failures, null]
         destination_label: { type: string, example: CBE ••8812 }
         scheduled_for: { type: string, format: date-time }
+        settled_at: { type: [string, 'null'], format: date-time }
+    PayoutDestination:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        rail: { type: string, enum: [telebirr, cbe_birr, mpesa_et, ethswitch] }
+        label: { type: string, example: telebirr ••4567 }
+        created_at: { type: string, format: date-time }
+        payouts_from: { type: string, format: date-time, description: When payouts to this account can start (after the cooling-off). }
     RiskCase:
       type: object
       properties:

@@ -18,6 +18,7 @@ import (
 	"superapp/backend/internal/money"
 	"superapp/backend/internal/notify"
 	"superapp/backend/internal/payments"
+	"superapp/backend/internal/payouts"
 	"superapp/backend/internal/platform"
 )
 
@@ -27,6 +28,7 @@ type Server struct {
 	Payments *payments.Service
 	Identity *identity.Service
 	Notify   *notify.Service        // nil: no notification endpoints
+	Payouts  *payouts.Service       // nil: no merchant payout endpoints
 	Auth     platform.Authenticator // normally Identity; tests may substitute their own
 	Log      *slog.Logger
 	Sandbox  bool // enables POST /v1/sandbox/topups
@@ -65,6 +67,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /v1/webhooks/rails/{rail}", s.railNotification)
 	mux.Handle("GET /v1/wallet/balances", authed(s.getBalances))
 	mux.Handle("GET /v1/activity", authed(s.listActivity))
+	if s.Payouts != nil {
+		mux.Handle("GET /v1/merchants/{id}/payouts", authed(s.listPayouts))
+		mux.Handle("GET /v1/merchants/{id}/payout-destination", authed(s.getPayoutDestination))
+		mux.Handle("PUT /v1/merchants/{id}/payout-destination", authed(s.putPayoutDestination))
+	}
 	if s.Notify != nil {
 		mux.Handle("GET /v1/notifications", authed(s.listNotifications))
 		mux.Handle("POST /v1/notifications/read", authed(s.markNotificationsRead))

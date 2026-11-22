@@ -12,6 +12,7 @@ internal/payments/    intents, QR resolution, risk rules, confirm flow, partner 
 internal/rails/telebirr/  telebirr merchant API: signing, checkout, queryOrder, notification checks
 internal/recon/       statement import and matching
 internal/outbox/      outbox relay: publishes events in order to Kafka, or in-process without Kafka
+internal/payouts/     merchant payouts: batching, payout accounts, sending through a licensed partner
 internal/notify/      notifications from events, the in-app list, push tokens, Firebase (FCM) sending
 internal/platform/    principal, PIN hashing and lockout, idempotency middleware, outbox, problem errors
 internal/httpapi/     routes and JSON mapping
@@ -86,6 +87,23 @@ QR payments split the amount three ways: debit the payer, credit the merchant se
   - Confirming: the intent carries `confirm_challenge` (intent id, amount, fee and payee); the app signs those exact bytes and sends `biometric_signature`. The key works only for the device it was registered on.
   - A PIN reset clears biometric keys on every device. Turning it on sends a security notification to all the user's devices.
   - Refused signatures (`biometric_not_enrolled`, `biometric_failed`) tell the app to ask for the PIN.
+
+## Merchant payouts
+
+- **Batching** (`internal/payouts`, run every 5 minutes by the API server). On each merchant's schedule, a payout collects the QR sales not yet paid out: up to midnight Addis Ababa time for `daily`, Monday midnight for `weekly`, everything for `instant`. Balances under ETB 10 carry over.
+  - Each sale's ledger entry is recorded in `merchant.payout_items`, with its gross, commission and net. The primary key means a sale is paid out once, even when two runs race.
+  - The net moves from the shop's `merchant_settlement` account into its `hold` account, so the money stays reserved for the shop until it really leaves.
+- **Sending.** A `payouts.Rail` sends each transfer through one licensed partner. Each attempt has its own request id (`<payout id>-<attempt>`), and a partner must treat a repeat of the same id as the same transfer.
+  - A timeout is retried under the same id. A definite temporary failure is retried under a new id, up to 3 attempts. A permanent failure (closed or wrong account) puts the payout on hold.
+  - When the partner confirms payment, the net moves from `hold` to the partner's clearing account and the payout is `settled`.
+  - **No payout rail exists yet.** Until a licensed partner's credentials are configured, payouts wait as `scheduled` with `last_error: rail_unavailable`. Nothing is simulated.
+- **Fraud controls.**
+  - Only an owner can change the payout account (`PUT /v1/merchants/{id}/payout-destination`), and only with their PIN.
+  - Every owner and accountant is notified of the change, and nothing is paid to a new account for 48 hours.
+  - Payouts of a suspended shop are held.
+  - Strangers get 404 for a shop's payout endpoints; cashiers get 403.
+- **Notifications** to owners and accountants: payout sent, and payout on hold (with the reason).
+- **Not built yet:** releasing held payouts and reversing failed ones (an operations tool with maker-checker), merchant sign-up (`POST /v1/merchants`), refunds in payout statements, and the merchant console UI.
 
 ## Notifications
 
@@ -267,4 +285,5 @@ curl -X POST localhost:8080/v1/auth/otp/verify -H 'Content-Type: application/jso
   - Show reconciliation exceptions in the admin console.
 - **Device keys in the app:** the server side of DPoP and biometric confirmation is done; the app still has to create the hardware keys and send proofs. Then switch on `DPOP_REQUIRED`.
 - **Key attestation:** check Android key attestation and App Attest so the server knows the DPoP and biometric keys really live in secure hardware.
-- **Merchant payout batching**, and orders and bills in the activity feed once those modules exist.
+- **Payout partner:** connect a licensed payout rail (telebirr B2C, EthSwitch) once credentials exist, and add an operations tool, with maker-checker, to release or reverse held payouts.
+- **Orders and bills** in the activity feed, once those modules exist.

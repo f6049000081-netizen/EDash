@@ -48,6 +48,7 @@ import (
 	"superapp/backend/internal/notify"
 	"superapp/backend/internal/outbox"
 	"superapp/backend/internal/payments"
+	"superapp/backend/internal/payouts"
 	"superapp/backend/internal/platform"
 	"superapp/backend/internal/rails/telebirr"
 )
@@ -136,6 +137,13 @@ func run(log *slog.Logger) error {
 	} else {
 		log.Info("telebirr top-ups disabled: merchant credentials not configured")
 	}
+	// Merchant payouts. No payout rail is connected until a licensed partner's credentials exist, so
+	// batches are created and wait as "scheduled" with rail_unavailable.
+	pay := payouts.NewService(pool, l, &platform.PINVerifier{Pool: pool})
+	pay.Log = log
+	go pay.Run(ctx, 5*time.Minute)
+	log.Info("merchant payouts: batching on; no payout rail configured, so nothing is sent")
+
 	notifier := &notify.Service{Pool: pool, Log: log}
 	if f := os.Getenv("FCM_SERVICE_ACCOUNT_FILE"); f != "" {
 		key, err := os.ReadFile(f)
@@ -176,7 +184,7 @@ func run(log *slog.Logger) error {
 	srv := &http.Server{
 		Addr: addr,
 		Handler: (&httpapi.Server{
-			Pool: pool, Ledger: l, Payments: svc, Identity: ids, Auth: ids, Log: log, Notify: notifier,
+			Pool: pool, Ledger: l, Payments: svc, Identity: ids, Auth: ids, Log: log, Notify: notifier, Payouts: pay,
 			Webhooks: webhooks, Sandbox: true, ClientIPHeader: os.Getenv("CLIENT_IP_HEADER"),
 		}).Routes(),
 		ReadHeaderTimeout: 5 * time.Second,

@@ -392,3 +392,35 @@ func TestRegisterPushToken(t *testing.T) {
 		t.Errorf("empty token: %v", err)
 	}
 }
+
+func TestMerchantNotificationsGoToOwnersAndAccountants(t *testing.T) {
+	e := setup(t)
+	shop := e.merchant("Tomoca Bole")
+	owner, accountant, cashier := e.user("Owner", "en"), e.user("Accountant", "am"), e.user("Cashier", "en")
+	for u, role := range map[uuid.UUID]string{owner: "owner", accountant: "accountant", cashier: "cashier"} {
+		e.exec(`INSERT INTO merchant.members (merchant_id, user_id, role) VALUES ($1, $2, $3)`, shop, u, role)
+	}
+	payout := uuid.New()
+	net := map[string]any{"amount_minor": 348_25, "currency": "ETB"}
+	e.handle(event("payout.settled", shop, map[string]any{"merchant_id": shop, "payout_id": payout, "net": net, "destination": "telebirr ••3344"}))
+	e.handle(event("payout.on_hold", shop, map[string]any{"merchant_id": shop, "payout_id": payout, "net": net, "reason": "no_destination"}))
+	e.handle(event("merchant.payout_destination_changed", shop, map[string]any{
+		"merchant_id": shop, "label": "CBETETAA ••5678", "effective_at": "2026-11-24T09:00:00Z"}))
+
+	got := e.list(owner)
+	if len(got) != 3 || got[0].Kind != "payout_destination_changed" || got[1].Kind != "payout_on_hold_no_destination" || got[2].Kind != "payout_settled" {
+		t.Fatalf("owner: %+v", got)
+	}
+	if got[2].Body != "ETB 348.25 from Tomoca Bole's sales was paid to telebirr ••3344." {
+		t.Errorf("settled: %q", got[2].Body)
+	}
+	if got[0].Body != "Payouts for Tomoca Bole will go to CBETETAA ••5678 from 24 Nov 2026, 12:00. If you didn't make this change, contact support now." {
+		t.Errorf("destination changed: %q", got[0].Body)
+	}
+	if a := e.list(accountant); len(a) != 3 || a[2].Title != "ክፍያ ተልኳል" {
+		t.Errorf("accountant (Amharic): %+v", a)
+	}
+	if c := e.list(cashier); len(c) != 0 {
+		t.Errorf("cashier: %+v", c)
+	}
+}

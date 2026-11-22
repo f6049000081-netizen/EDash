@@ -29,6 +29,7 @@ import (
 	"superapp/backend/internal/notify"
 	"superapp/backend/internal/outbox"
 	"superapp/backend/internal/payments"
+	"superapp/backend/internal/payouts"
 	"superapp/backend/internal/platform"
 )
 
@@ -106,6 +107,7 @@ func TestEndToEndSignInAndPay(t *testing.T) {
 	notifier := &notify.Service{Pool: pool, Log: log}
 	srv := httptest.NewServer((&httpapi.Server{
 		Pool: pool, Ledger: l, Payments: pay, Identity: ids, Auth: ids, Log: log, Sandbox: true, Notify: notifier,
+		Payouts: payouts.NewService(pool, l, &platform.PINVerifier{Pool: pool}),
 	}).Routes())
 	defer srv.Close()
 
@@ -257,6 +259,33 @@ func TestEndToEndSignInAndPay(t *testing.T) {
 	}
 	if st, p := alice.do("PUT", "/v1/devices/current/push-token", map[string]any{"token": "fcm-" + phone()}, false); st != http.StatusNoContent {
 		t.Errorf("push token: %d %v", st, p)
+	}
+
+	// Merchant payout account: owner only, with the PIN; other roles and strangers can't.
+	shop := uuid.New()
+	if _, err := pool.Exec(ctx, `INSERT INTO merchant.merchants (id, legal_name, trade_name, category_code, status) VALUES ($1, 'Alem PLC', 'Alem Shop', '5812', 'active')`, shop); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO merchant.members (merchant_id, user_id, role) VALUES ($1, $2, 'owner'), ($1, $3, 'cashier')`,
+		shop, me["id"], bobMe["id"]); err != nil {
+		t.Fatal(err)
+	}
+	dest := map[string]any{"rail": "telebirr", "account": "+251911223344", "pin": "730918"}
+	if st, p := bob.do("PUT", "/v1/merchants/"+shop.String()+"/payout-destination", dest, false); st != http.StatusForbidden {
+		t.Errorf("cashier sets the payout account: %d %v", st, p)
+	}
+	if st, p := alice.do("GET", "/v1/merchants/"+uuid.NewString()+"/payouts", nil, false); st != http.StatusNotFound {
+		t.Errorf("someone else's shop: %d %v", st, p)
+	}
+	if st, p := alice.do("GET", "/v1/merchants/"+shop.String()+"/payout-destination", nil, false); st != http.StatusNotFound {
+		t.Errorf("no account yet: %d %v", st, p)
+	}
+	st, d := alice.do("PUT", "/v1/merchants/"+shop.String()+"/payout-destination", dest, false)
+	if st != http.StatusOK || d["label"] != "telebirr ••3344" || d["payouts_from"] == nil {
+		t.Fatalf("set payout account: %d %v", st, d)
+	}
+	if st, p := alice.do("GET", "/v1/merchants/"+shop.String()+"/payouts", nil, false); st != http.StatusOK || len(p["items"].([]any)) != 0 {
+		t.Errorf("payouts: %d %v", st, p)
 	}
 
 	// Refresh and logout over HTTP.

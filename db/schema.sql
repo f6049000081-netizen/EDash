@@ -393,7 +393,6 @@ CREATE TABLE merchant.merchants (
     tier                TEXT NOT NULL DEFAULT 'micro' CHECK (tier IN ('micro', 'sme', 'enterprise')),
     plan                TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro')),
     status              TEXT NOT NULL DEFAULT 'applied' CHECK (status IN ('applied', 'kyb_review', 'active', 'suspended', 'closed')),
-    payout_source_id    UUID,                   -- payments.funding_sources-like token for the payout account
     payout_schedule     TEXT NOT NULL DEFAULT 'daily' CHECK (payout_schedule IN ('instant', 'daily', 'weekly')),
     approved_by         UUID,
     approved_at         TIMESTAMPTZ,
@@ -434,6 +433,21 @@ CREATE TABLE merchant.commission_plans (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Where a merchant's payouts go. Changing it is the classic account-takeover move, so only an owner can,
+-- with their PIN, and payouts to a destination younger than the cooling-off period are held for review.
+CREATE TABLE merchant.payout_destinations (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    merchant_id     UUID NOT NULL REFERENCES merchant.merchants(id),
+    rail            payments.rail NOT NULL CHECK (rail IN ('telebirr', 'cbe_birr', 'mpesa_et', 'ethswitch')),
+    bank_code       TEXT,                   -- EthSwitch participant code; null for mobile money
+    account_ref     TEXT NOT NULL,          -- wallet number or bank account; to move under envelope encryption with the other PII
+    label           TEXT NOT NULL,          -- "telebirr ••4567", "CBE ••8812"
+    created_by      UUID NOT NULL REFERENCES identity.users(id),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    replaced_at     TIMESTAMPTZ             -- set when a newer destination takes over
+);
+CREATE UNIQUE INDEX ON merchant.payout_destinations (merchant_id) WHERE replaced_at IS NULL;
+
 CREATE TABLE merchant.payouts (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     merchant_id     UUID NOT NULL REFERENCES merchant.merchants(id),
@@ -443,14 +457,34 @@ CREATE TABLE merchant.payouts (
     commission_minor BIGINT NOT NULL,
     fees_minor      BIGINT NOT NULL,
     refunds_minor   BIGINT NOT NULL,
-    net_minor       BIGINT NOT NULL,
+    net_minor       BIGINT NOT NULL CHECK (net_minor > 0),
     currency        platform.currency NOT NULL DEFAULT 'ETB',
     status          TEXT NOT NULL CHECK (status IN ('scheduled', 'sent', 'settled', 'failed', 'on_hold')),
+    hold_reason     TEXT,                   -- why on_hold: new_destination, merchant_suspended, no_destination, rejected_by_partner
+    destination_id  UUID REFERENCES merchant.payout_destinations(id),
+    rail            payments.rail,
     partner_ref     TEXT,
+    attempts        INTEGER NOT NULL DEFAULT 0,
+    last_error      TEXT,                   -- e.g. rail_unavailable while no licensed payout partner is configured
     scheduled_for   TIMESTAMPTZ NOT NULL,
+    sent_at         TIMESTAMPTZ,
+    settled_at      TIMESTAMPTZ,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (net_minor = gross_minor - commission_minor - fees_minor - refunds_minor)
 );
+CREATE INDEX ON merchant.payouts (merchant_id, created_at DESC, id DESC);
+CREATE INDEX ON merchant.payouts (status) WHERE status IN ('scheduled', 'sent');
+
+-- The ledger entries each payout covers. An entry is paid out once (primary key).
+CREATE TABLE merchant.payout_items (
+    entry_id        UUID PRIMARY KEY REFERENCES ledger.journal_entries(id),
+    payout_id       UUID NOT NULL REFERENCES merchant.payouts(id),
+    gross_minor     BIGINT NOT NULL,
+    commission_minor BIGINT NOT NULL,
+    net_minor       BIGINT NOT NULL
+);
+CREATE INDEX ON merchant.payout_items (payout_id);
 
 -- ---------------------------------------------------------------------------
 -- COMMERCE (Phase 2): catalog, carts, orders
