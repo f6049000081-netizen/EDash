@@ -2,6 +2,8 @@
 .env
 .env.*
 *.pem
+# public certificates only (Google attestation roots), embedded in the server
+!backend/internal/keyattest/google_roots.pem
 *.key
 
 # build output and OS files
