@@ -462,3 +462,32 @@ func TestAFrozenAccountIsToldItIsOnHold(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+func TestOrderNotifications(t *testing.T) {
+	e := setup(t)
+	owner, customer := e.user("Owner", "en"), e.user("Hana", "am")
+	shop := uuid.New()
+	if _, err := pool.Exec(e.ctx, `INSERT INTO merchant.merchants (id, legal_name, trade_name, category_code, status) VALUES ($1, 'MF PLC', 'Merkato Fresh', '5411', 'active')`, shop); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(e.ctx, `INSERT INTO merchant.members (merchant_id, user_id, role) VALUES ($1, $2, 'owner')`, shop, owner); err != nil {
+		t.Fatal(err)
+	}
+	order := uuid.New()
+	ev := func(topic, reason, note string) {
+		e.handle(event(topic, order, map[string]any{"order_id": order, "number": "OR-100042", "user_id": customer,
+			"merchant_id": shop, "channel": "pickup", "total": map[string]any{"amount_minor": 85000, "currency": "ETB"},
+			"reason": reason, "note": note}))
+	}
+	ev("order.placed", "", "")
+	ev("order.ready", "", "")
+	ev("order.cancelled", "shop_cancelled", "Our oven broke")
+	shopGot, custGot := e.list(owner), e.list(customer)
+	if len(shopGot) != 1 || shopGot[0].Title != "New order OR-100042" {
+		t.Errorf("shop: %+v", shopGot)
+	}
+	if len(custGot) != 2 || custGot[0].Title != "Merkato Fresh ትዕዛዝዎን ሰርዟል" ||
+		!strings.HasPrefix(custGot[0].Body, "Our oven broke. ") || strings.Contains(custGot[1].Body, "{") {
+		t.Errorf("customer: %+v", custGot)
+	}
+}

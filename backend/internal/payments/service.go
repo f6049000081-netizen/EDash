@@ -62,6 +62,18 @@ type Service struct {
 	// LimitsRequired makes a missing identity.kyc_limits row block payments (kyc_required) instead
 	// of meaning "no limit". Turn it on in production once compliance has filled the table.
 	LimitsRequired bool
+
+	// Orders follows order payments (set by commerce). Nil: order payments are refused.
+	Orders OrderHook
+
+	now func() time.Time
+}
+
+func (s *Service) nowOr() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
 }
 
 func NewService(pool *pgxpool.Pool, l *ledger.Ledger, risk RiskEngine, presence PresenceVerifier) *Service {
@@ -416,6 +428,20 @@ func (s *Service) buildEntry(ctx context.Context, tx pgx.Tx, in *Intent) (ledger
 			e.Postings = append(e.Postings, ledger.Posting{AccountID: rev, Side: ledger.Credit, AmountMinor: commission, Currency: cur})
 		}
 
+	case KindOrder:
+		if s.Orders == nil {
+			return e, ErrUnsupportedKind
+		}
+		escrow, err := s.Ledger.EnsureAccount(ctx, tx, ledger.OrderEscrow, ledger.OwnerPlatform, uuid.Nil, cur)
+		if err != nil {
+			return e, err
+		}
+		e.Kind = "order_payment"
+		e.Postings = []ledger.Posting{
+			{AccountID: payer, Side: ledger.Debit, AmountMinor: amt, Currency: cur},
+			{AccountID: escrow, Side: ledger.Credit, AmountMinor: amt, Currency: cur},
+		}
+
 	default:
 		return e, ErrUnsupportedKind
 	}
@@ -462,6 +488,9 @@ func (s *Service) finish(ctx context.Context, tx pgx.Tx, in *Intent, to Status, 
 	if err := addEvent(ctx, tx, in.ID, StatusRequiresConfirmation, to, failure, actor); err != nil {
 		return err
 	}
+	if err := s.orderHook(ctx, tx, in, to, failure); err != nil {
+		return err
+	}
 	if err := platform.WriteOutbox(ctx, tx, topic, in.ID, map[string]any{
 		"intent_id": in.ID, "kind": in.Kind, "payer_user_id": in.PayerID,
 		"payee_type": in.PayeeType, "payee_id": in.PayeeID,
@@ -479,9 +508,10 @@ func (s *Service) finish(ctx context.Context, tx pgx.Tx, in *Intent, to Status, 
 
 func (s *Service) Cancel(ctx context.Context, payerID, intentID uuid.UUID) (*Intent, error) {
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
-		var status string
-		err := tx.QueryRow(ctx, `SELECT status FROM payments.intents WHERE id = $1 AND payer_user_id = $2 FOR UPDATE`,
-			intentID, payerID).Scan(&status)
+		var status, kind string
+		var order *uuid.UUID
+		err := tx.QueryRow(ctx, `SELECT status, kind, order_id FROM payments.intents WHERE id = $1 AND payer_user_id = $2 FOR UPDATE`,
+			intentID, payerID).Scan(&status, &kind, &order)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
 		}
@@ -497,7 +527,10 @@ func (s *Service) Cancel(ctx context.Context, payerID, intentID uuid.UUID) (*Int
 		if _, err := tx.Exec(ctx, `UPDATE payments.intents SET status = 'cancelled', updated_at = now() WHERE id = $1`, intentID); err != nil {
 			return err
 		}
-		return addEvent(ctx, tx, intentID, Status(status), StatusCancelled, "cancelled by payer", "user:"+payerID.String())
+		if err := addEvent(ctx, tx, intentID, Status(status), StatusCancelled, "cancelled by payer", "user:"+payerID.String()); err != nil {
+			return err
+		}
+		return s.orderHook(ctx, tx, &Intent{Kind: Kind(kind), OrderID: order}, StatusCancelled, "")
 	})
 	if err != nil {
 		return nil, err
@@ -515,14 +548,14 @@ func (s *Service) Get(ctx context.Context, payerID, intentID uuid.UUID) (*Intent
 		SELECT i.id, i.kind, i.payer_user_id, i.payee_type, i.payee_id,
 		       COALESCE(u.display_name, m.trade_name),
 		       i.amount_minor, i.currency, i.fee_minor, i.rail, i.status, i.failure_code,
-		       i.risk_score::float8, i.note, i.created_at, i.completed_at
+		       i.risk_score::float8, i.note, i.order_id, i.created_at, i.completed_at
 		FROM payments.intents i
 		LEFT JOIN identity.users u ON i.payee_type = 'user' AND u.id = i.payee_id
 		LEFT JOIN merchant.merchants m ON i.payee_type = 'merchant' AND m.id = i.payee_id
 		WHERE i.id = $1 AND i.payer_user_id = $2`, intentID, payerID).
 		Scan(&in.ID, &kind, &in.PayerID, &in.PayeeType, &payeeID, &payeeName,
 			&in.Amount.AmountMinor, &cur, &in.FeeMinor, &in.Rail, &status, &failure,
-			&in.RiskScore, &note, &in.CreatedAt, &in.CompletedAt)
+			&in.RiskScore, &note, &in.OrderID, &in.CreatedAt, &in.CompletedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

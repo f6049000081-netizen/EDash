@@ -41,12 +41,15 @@ var railNames = map[string]string{
 
 // Activity lists what the user sent, received and topped up. Intents that were never confirmed or
 // were cancelled are left out: no money moved and the user didn't finish them. filter is "all",
-// "money" or "orders" (no orders exist yet, so that page is empty).
+// "money" (everything but orders) or "orders" (payments for shop orders).
 func (s *Service) Activity(ctx context.Context, user uuid.UUID, filter, cursor string, limit int) (*ActivityPage, error) {
+	kinds := []string{"p2p", "qr_merchant", "topup", "order"}
 	switch filter {
-	case "", "all", "money":
+	case "", "all":
+	case "money":
+		kinds = kinds[:3]
 	case "orders":
-		return &ActivityPage{Items: []ActivityItem{}}, nil
+		kinds = []string{"order"}
 	default:
 		return nil, &ValidationError{"filter must be all, money or orders"}
 	}
@@ -70,7 +73,7 @@ func (s *Service) Activity(ctx context.Context, user uuid.UUID, filter, cursor s
 			(SELECT i.id, i.kind, i.status, i.amount_minor, i.fee_minor, i.currency, i.rail, i.failure_code,
 			        i.created_at, i.completed_at, i.payee_type, i.payee_id AS other, 'out' AS dir
 			 FROM payments.intents i
-			 WHERE i.payer_user_id = $1
+			 WHERE i.payer_user_id = $1 AND i.kind = ANY($5)
 			   AND i.status NOT IN ('created', 'requires_confirmation', 'cancelled')
 			   AND (i.created_at, i.id) < ($2, $3)
 			 ORDER BY i.created_at DESC, i.id DESC LIMIT $4)
@@ -78,7 +81,7 @@ func (s *Service) Activity(ctx context.Context, user uuid.UUID, filter, cursor s
 			(SELECT i.id, i.kind, i.status, i.amount_minor, 0, i.currency, i.rail, NULL,
 			        i.created_at, i.completed_at, 'user', i.payer_user_id, 'in'
 			 FROM payments.intents i
-			 WHERE i.payee_type = 'user' AND i.payee_id = $1 AND i.kind = 'p2p'
+			 WHERE i.payee_type = 'user' AND i.payee_id = $1 AND i.kind = 'p2p' AND 'p2p' = ANY($5)
 			   AND i.status IN ('succeeded', 'reversed')
 			   AND (i.created_at, i.id) < ($2, $3)
 			 ORDER BY i.created_at DESC, i.id DESC LIMIT $4)
@@ -90,7 +93,7 @@ func (s *Service) Activity(ctx context.Context, user uuid.UUID, filter, cursor s
 		LEFT JOIN identity.users u ON m.payee_type = 'user' AND u.id = m.other
 		LEFT JOIN merchant.merchants mc ON m.payee_type = 'merchant' AND mc.id = m.other
 		ORDER BY m.created_at DESC, m.id DESC
-		LIMIT $4`, user, beforeTime, beforeID, limit+1)
+		LIMIT $4`, user, beforeTime, beforeID, limit+1, kinds)
 	if err != nil {
 		return nil, err
 	}
@@ -134,6 +137,8 @@ func (s *Service) Activity(ctx context.Context, user uuid.UUID, filter, cursor s
 			it.Title = railNames[x.rail]
 		case x.kind == string(KindQRMerchant):
 			it.Type, it.Title, it.Subtitle = "payment", x.merchant, "QR payment"
+		case x.kind == string(KindOrder):
+			it.Type, it.Title, it.Subtitle = "order", x.merchant, "Order"
 		case x.dir == "in":
 			it.Type, it.Title, it.Subtitle = "transfer_in", person, "Received"
 		default:

@@ -26,6 +26,7 @@ const (
 	StatusSucceeded            Status = "succeeded"
 	StatusFailed               Status = "failed"
 	StatusCancelled            Status = "cancelled"
+	StatusReversed             Status = "reversed" // an order's payment, refunded when the order was cancelled
 )
 
 type Kind string
@@ -34,6 +35,7 @@ const (
 	KindP2P        Kind = "p2p"
 	KindQRMerchant Kind = "qr_merchant"
 	KindTopUp      Kind = "topup"
+	KindOrder      Kind = "order" // created by commerce for a shop order, never directly by the client
 )
 
 type Intent struct {
@@ -51,6 +53,7 @@ type Intent struct {
 	FailureCode   string
 	RiskScore     *float64
 	Note          string
+	OrderID       *uuid.UUID // kind order
 	CreatedAt     time.Time
 	CompletedAt   *time.Time
 }

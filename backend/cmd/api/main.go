@@ -42,6 +42,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"superapp/backend/internal/commerce"
 	"superapp/backend/internal/httpapi"
 	"superapp/backend/internal/identity"
 	"superapp/backend/internal/kyb"
@@ -146,6 +147,11 @@ func run(log *slog.Logger) error {
 	go pay.Run(ctx, 5*time.Minute)
 	log.Info("merchant payouts: batching on; no payout rail configured, so nothing is sent")
 
+	// Shops and orders. Orders are paid into escrow; unpaid and unanswered orders are cancelled (and
+	// refunded) by the sweep.
+	shops := commerce.New(pool, svc)
+	go shops.Run(ctx, time.Minute, log)
+
 	notifier := &notify.Service{Pool: pool, Log: log}
 	if f := os.Getenv("FCM_SERVICE_ACCOUNT_FILE"); f != "" {
 		key, err := os.ReadFile(f)
@@ -195,7 +201,7 @@ func run(log *slog.Logger) error {
 		Addr: addr,
 		Handler: (&httpapi.Server{
 			Pool: pool, Ledger: l, Payments: svc, Identity: ids, Auth: ids, Log: log, Notify: notifier, Payouts: pay,
-			Merchants: &merchants.Service{Pool: pool}, KYB: docs,
+			Merchants: &merchants.Service{Pool: pool}, KYB: docs, Commerce: shops,
 			Webhooks: webhooks, Sandbox: true, ClientIPHeader: os.Getenv("CLIENT_IP_HEADER"),
 		}).Routes(),
 		ReadHeaderTimeout: 5 * time.Second,

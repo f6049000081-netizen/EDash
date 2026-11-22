@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"superapp/backend/internal/commerce"
 	"superapp/backend/internal/identity"
 	"superapp/backend/internal/kyb"
 	"superapp/backend/internal/ledger"
@@ -33,6 +34,7 @@ type Server struct {
 	Payouts   *payouts.Service       // nil: no merchant payout endpoints
 	Merchants *merchants.Service     // nil: no merchant endpoints
 	KYB       *kyb.Service           // nil: document endpoints answer documents_unavailable
+	Commerce  *commerce.Service      // nil: no shop or order endpoints
 	Auth      platform.Authenticator // normally Identity; tests may substitute their own
 	Log       *slog.Logger
 	Sandbox   bool // enables POST /v1/sandbox/topups
@@ -91,6 +93,9 @@ func (s *Server) Routes() http.Handler {
 		mux.Handle("POST /v1/notifications/read", authed(s.markNotificationsRead))
 		mux.Handle("PUT /v1/devices/current/push-token", authed(s.putPushToken))
 		mux.Handle("DELETE /v1/devices/current/push-token", authed(s.deletePushToken))
+	}
+	if s.Commerce != nil {
+		s.commerceRoutes(mux, authed, mutating)
 	}
 	mux.Handle("POST /v1/qr/resolve", authed(s.resolveQR))
 	mux.Handle("POST /v1/payment-intents", mutating(s.createIntent))

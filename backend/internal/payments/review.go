@@ -170,6 +170,9 @@ func (s *Service) settleTx(ctx context.Context, tx pgx.Tx, in *Intent, to Status
 	if err := addEvent(ctx, tx, in.ID, StatusHeldForReview, to, failure, actor); err != nil {
 		return err
 	}
+	if err := s.orderHook(ctx, tx, in, to, failure); err != nil {
+		return err
+	}
 	return platform.WriteOutbox(ctx, tx, topic, in.ID, map[string]any{
 		"intent_id": in.ID, "kind": in.Kind, "payer_user_id": in.PayerID,
 		"payee_type": in.PayeeType, "payee_id": in.PayeeID,

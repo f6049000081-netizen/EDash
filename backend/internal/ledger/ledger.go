@@ -36,6 +36,7 @@ const (
 	RewardsLiability   AccountKind = "rewards_liability"
 	Suspense           AccountKind = "suspense"
 	Hold               AccountKind = "hold"
+	OrderEscrow        AccountKind = "order_escrow"
 )
 
 // accountRules: liabilities and income are credit-normal; assets are debit-normal.
@@ -52,6 +53,7 @@ var accountRules = map[AccountKind]struct {
 	RewardsLiability:   {Credit, false},
 	Suspense:           {Debit, true},
 	Hold:               {Credit, false},
+	OrderEscrow:        {Credit, false},
 }
 
 type OwnerType string

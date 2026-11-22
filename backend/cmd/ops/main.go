@@ -29,6 +29,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"superapp/backend/internal/commerce"
 	"superapp/backend/internal/kyb"
 	"superapp/backend/internal/ledger"
 	"superapp/backend/internal/merchants"
@@ -104,6 +105,7 @@ func run(log *slog.Logger) error {
 		// Staff only release or decline held payments; the rules and PIN check are the customer side's.
 		Payments: payments.NewService(pool, ledger.New(), payments.DefaultRules(), &platform.PINVerifier{Pool: pool}),
 	}
+	commerce.New(pool, svc.Payments) // a released order payment moves its order on
 	if svc.KYB, err = kyb.FromEnv(ctx, pool, os.Getenv); err != nil {
 		return err
 	}

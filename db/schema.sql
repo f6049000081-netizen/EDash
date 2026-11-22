@@ -166,7 +166,8 @@ CREATE TYPE ledger.account_kind AS ENUM (
     'commission_revenue',   -- income
     'rewards_liability',    -- points redeemable for money
     'suspense',             -- unmatched items awaiting reconciliation
-    'hold'                  -- funds frozen by risk or a pending authorisation
+    'hold',                 -- funds frozen by risk or a pending authorisation
+    'order_escrow'          -- liability: paid for orders not yet handed over (released to the shop or refunded)
 );
 
 CREATE TABLE ledger.accounts (
@@ -519,52 +520,77 @@ CREATE INDEX ON merchant.payout_items (payout_id);
 -- ---------------------------------------------------------------------------
 -- COMMERCE (Phase 2): catalog, carts, orders
 -- ---------------------------------------------------------------------------
+-- A shop's ordering settings. A merchant sells in the app once it has a row here with open = TRUE.
+CREATE TABLE commerce.shops (
+    merchant_id     UUID PRIMARY KEY REFERENCES merchant.merchants(id),
+    open            BOOLEAN NOT NULL DEFAULT FALSE,      -- taking orders now
+    pickup          BOOLEAN NOT NULL DEFAULT TRUE,
+    delivery        BOOLEAN NOT NULL DEFAULT FALSE,      -- the shop delivers itself (no courier network yet)
+    delivery_fee_minor BIGINT NOT NULL DEFAULT 0 CHECK (delivery_fee_minor >= 0),
+    delivery_area   TEXT CHECK (char_length(delivery_area) <= 200),
+    about           TEXT CHECK (char_length(about) <= 500),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (pickup OR delivery)
+);
+
 CREATE TABLE commerce.products (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     merchant_id     UUID NOT NULL REFERENCES merchant.merchants(id),
-    title           JSONB NOT NULL,             -- per locale
-    description     JSONB,
-    category        TEXT NOT NULL,
-    price_minor     BIGINT NOT NULL CHECK (price_minor >= 0),
+    title           TEXT NOT NULL CHECK (char_length(title) BETWEEN 1 AND 80),   -- in the shop's own words
+    description     TEXT CHECK (char_length(description) <= 500),
+    category        TEXT NOT NULL DEFAULT '' CHECK (char_length(category) <= 40), -- the shop's own shelf name
+    price_minor     BIGINT NOT NULL CHECK (price_minor > 0),
     currency        platform.currency NOT NULL DEFAULT 'ETB',
+    stock           INTEGER CHECK (stock >= 0),                    -- null: not counted
     images          TEXT[] NOT NULL DEFAULT '{}',
-    status          TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'active', 'archived')),
+    status          TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'hidden', 'archived')),
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE INDEX ON commerce.products (merchant_id, status);
 
-CREATE TABLE commerce.inventory (
-    product_id      UUID NOT NULL REFERENCES commerce.products(id),
-    branch_id       UUID NOT NULL REFERENCES merchant.branches(id),
-    on_hand         INTEGER NOT NULL CHECK (on_hand >= 0),
-    reserved        INTEGER NOT NULL DEFAULT 0 CHECK (reserved >= 0),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    PRIMARY KEY (product_id, branch_id)
-);
+CREATE SEQUENCE commerce.order_number_seq START 100001;
 
+-- Lifecycle: pending_payment -> placed (paid; the money waits in order escrow) -> accepted -> ready
+-- (pickup: ready to collect; delivery: packed) -> on_the_way (delivery) -> delivered (handed over:
+-- escrow pays the shop). cancelled at any point before delivered; anything paid is refunded.
 CREATE TABLE commerce.orders (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    number          TEXT NOT NULL UNIQUE,       -- MF-88412
+    number          TEXT NOT NULL UNIQUE DEFAULT 'OR-' || nextval('commerce.order_number_seq'),
     user_id         UUID NOT NULL REFERENCES identity.users(id),
     merchant_id     UUID NOT NULL REFERENCES merchant.merchants(id),
-    branch_id       UUID NOT NULL REFERENCES merchant.branches(id),
+    branch_id       UUID REFERENCES merchant.branches(id),          -- null: the shop's only location
     channel         TEXT NOT NULL CHECK (channel IN ('delivery', 'pickup', 'in_store')),
     status          TEXT NOT NULL CHECK (status IN ('pending_payment', 'placed', 'accepted', 'packing', 'ready', 'on_the_way', 'delivered', 'cancelled', 'refunded')),
     subtotal_minor  BIGINT NOT NULL,
     delivery_fee_minor BIGINT NOT NULL DEFAULT 0,
     discount_minor  BIGINT NOT NULL DEFAULT 0,
     points_used     INTEGER NOT NULL DEFAULT 0,
-    total_minor     BIGINT NOT NULL,
+    total_minor     BIGINT NOT NULL CHECK (total_minor > 0),
     currency        platform.currency NOT NULL DEFAULT 'ETB',
     address_id      UUID REFERENCES identity.addresses(id),
+    delivery_address TEXT CHECK (char_length(delivery_address) <= 300),  -- as written at checkout
+    note            TEXT CHECK (char_length(note) <= 280),
+    intent_id       UUID,                                         -- payments.intents paying for it
+    handover_code   TEXT CHECK (handover_code ~ '^[0-9]{4}$'),    -- the customer shows it to collect; only they see it
+    handover_tries  SMALLINT NOT NULL DEFAULT 0,
+    cancel_reason   TEXT,                                         -- customer_cancelled, shop_declined, shop_cancelled, no_response, payment_failed, payment_not_finished
+    cancel_note     TEXT CHECK (char_length(cancel_note) <= 280),  -- the shop's words to the customer
     slot_start      TIMESTAMPTZ,
     slot_end        TIMESTAMPTZ,
     gift_from_user_id UUID REFERENCES identity.users(id),  -- diaspora "send a basket home"
+    placed_at       TIMESTAMPTZ,
+    accepted_at     TIMESTAMPTZ,
+    ready_at        TIMESTAMPTZ,
+    completed_at    TIMESTAMPTZ,
+    cancelled_at    TIMESTAMPTZ,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK (channel <> 'delivery' OR delivery_address IS NOT NULL)
 );
 CREATE INDEX ON commerce.orders (merchant_id, status, created_at DESC);
 CREATE INDEX ON commerce.orders (user_id, created_at DESC);
+CREATE INDEX ON commerce.orders (status, created_at) WHERE status IN ('pending_payment', 'placed');
 
 CREATE TABLE commerce.order_items (
     order_id        UUID NOT NULL REFERENCES commerce.orders(id),
@@ -572,7 +598,7 @@ CREATE TABLE commerce.order_items (
     product_id      UUID NOT NULL REFERENCES commerce.products(id),
     title_snapshot  TEXT NOT NULL,
     unit_price_minor BIGINT NOT NULL,
-    quantity        INTEGER NOT NULL CHECK (quantity > 0),
+    quantity        INTEGER NOT NULL CHECK (quantity BETWEEN 1 AND 99),
     substitution_of SMALLINT,                   -- line replaced with the customer's approval
     PRIMARY KEY (order_id, line_no)
 );

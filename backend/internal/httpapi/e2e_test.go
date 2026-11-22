@@ -25,6 +25,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"superapp/backend/internal/commerce"
 	"superapp/backend/internal/httpapi"
 	"superapp/backend/internal/identity"
 	"superapp/backend/internal/kyb"
@@ -115,7 +116,7 @@ func TestEndToEndSignInAndPay(t *testing.T) {
 	srv := httptest.NewServer((&httpapi.Server{
 		Pool: pool, Ledger: l, Payments: pay, Identity: ids, Auth: ids, Log: log, Sandbox: true, Notify: notifier,
 		Payouts:   payouts.NewService(pool, l, &platform.PINVerifier{Pool: pool}),
-		Merchants: &merchants.Service{Pool: pool}, KYB: docs,
+		Merchants: &merchants.Service{Pool: pool}, KYB: docs, Commerce: commerce.New(pool, pay),
 	}).Routes())
 	defer srv.Close()
 
@@ -382,6 +383,52 @@ func TestEndToEndSignInAndPay(t *testing.T) {
 	}
 	if st, p := bob.do("GET", "/v1/me/merchants", nil, false); st != http.StatusOK || len(p["items"].([]any)) != 2 {
 		t.Errorf("bob's businesses (cashier at Alem Shop, owner of the kiosk): %d %v", st, p)
+	}
+
+	// Commerce: Bob puts the kiosk's catalog up and opens for orders; Carol orders, pays with her PIN,
+	// and collects with her handover code.
+	base := "/v1/merchants/" + kiosk
+	if st, p := bob.do("PUT", base+"/shop", map[string]any{"open": true, "pickup": true}, true); st != http.StatusConflict {
+		t.Errorf("opening with no products: %d %v", st, p)
+	}
+	st, buna := bob.do("POST", base+"/products", map[string]any{"title": "Buna, 250 g", "category": "Coffee",
+		"price": map[string]any{"amount_minor": 150_00, "currency": "ETB"}, "stock": 5}, true)
+	if st != http.StatusCreated || buna["sold_out"] != false {
+		t.Fatalf("product: %d %v", st, buna)
+	}
+	if st, p := bob.do("PUT", base+"/shop", map[string]any{"open": true, "pickup": true, "about": "Fresh coffee"}, true); st != http.StatusOK || p["open"] != true {
+		t.Fatalf("open shop: %d %v", st, p)
+	}
+	if st, p := carol.do("GET", "/v1/shops/"+kiosk, nil, false); st != http.StatusOK || len(p["products"].([]any)) != 1 {
+		t.Fatalf("shop page: %d %v", st, p)
+	}
+	st, ord := carol.do("POST", "/v1/orders", map[string]any{"merchant_id": kiosk, "channel": "pickup",
+		"items": []any{map[string]any{"product_id": buna["id"], "quantity": 2}}}, true)
+	if st != http.StatusCreated || ord["status"] != "pending_payment" || ord["total"].(map[string]any)["amount_minor"] != float64(300_00) {
+		t.Fatalf("place order: %d %v", st, ord)
+	}
+	orderID := ord["id"].(string)
+	if st, p := carol.do("POST", "/v1/payment-intents/"+ord["payment_intent_id"].(string)+"/confirm", map[string]any{"pin": "582047"}, true); st != http.StatusOK || p["status"] != "succeeded" {
+		t.Fatalf("pay order: %d %v", st, p)
+	}
+	for _, step := range []string{"accept", "ready"} {
+		if st, p := bob.do("POST", base+"/orders/"+orderID+"/"+step, map[string]any{}, true); st != http.StatusOK || p["handover_code"] != nil {
+			t.Fatalf("%s: %d %v", step, st, p)
+		}
+	}
+	_, mine := carol.do("GET", "/v1/orders/"+orderID, nil, false)
+	code, _ := mine["handover_code"].(string)
+	if mine["status"] != "ready" || len(code) != 4 {
+		t.Fatalf("carol's order: %v", mine)
+	}
+	if st, p := alice.do("GET", "/v1/orders/"+orderID, nil, false); st != http.StatusNotFound {
+		t.Errorf("someone else's order: %d %v", st, p)
+	}
+	if st, p := bob.do("POST", base+"/orders/"+orderID+"/hand_over", map[string]any{"code": code}, true); st != http.StatusOK || p["status"] != "delivered" {
+		t.Fatalf("hand over: %d %v", st, p)
+	}
+	if st, p := carol.do("GET", "/v1/activity?filter=orders", nil, false); st != http.StatusOK || len(p["items"].([]any)) != 1 {
+		t.Errorf("order in activity: %d %v", st, p)
 	}
 
 	// Refresh and logout over HTTP.

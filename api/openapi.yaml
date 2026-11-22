@@ -31,6 +31,12 @@ tags:
   - name: Payments
   - name: Bills
   - name: Merchants
+  - name: Commerce
+    description: |
+      Ordering from shops in the app. An order is paid like any payment (POST /v1/orders creates it with a
+      payment intent, which the customer confirms with POST /v1/payment-intents/{id}/confirm), but the money waits
+      in order escrow. The shop is paid when the order is handed over, with the customer's four-digit code or the
+      customer's own confirmation. Cancelled orders are refunded to the wallet at once.
   - name: Admin
   - name: Webhooks
   - name: Notifications
@@ -931,6 +937,275 @@ paths:
         '403': { $ref: '#/components/responses/Problem' }
         '422': { $ref: '#/components/responses/Problem' }
 
+  /v1/shops:
+    get:
+      tags: [Commerce]
+      summary: Shops taking orders in the app
+      description: Approved shops with at least one product on sale. Open shops first.
+      operationId: listShops
+      responses:
+        '200':
+          description: Shops
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Shop' } }
+        '401': { $ref: '#/components/responses/Problem' }
+  /v1/shops/{id}:
+    get:
+      tags: [Commerce]
+      summary: A shop's page, with the products on sale
+      operationId: getShop
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200':
+          description: The shop
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shop' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /v1/orders:
+    post:
+      tags: [Commerce]
+      summary: Place an order
+      description: |
+        Checks the shop is open and offers the channel, prices the basket from the current catalog, sets the stock
+        aside, and creates the payment (`payment_intent_id`). Confirm that intent with the PIN or biometrics. Orders
+        not paid within 30 minutes are cancelled and their stock returned. Staff of a shop can't order from it.
+      operationId: placeOrder
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [merchant_id, channel, items]
+              properties:
+                merchant_id: { type: string, format: uuid }
+                channel: { type: string, enum: [pickup, delivery] }
+                items:
+                  type: array
+                  minItems: 1
+                  maxItems: 50
+                  items:
+                    type: object
+                    required: [product_id, quantity]
+                    properties:
+                      product_id: { type: string, format: uuid }
+                      quantity: { type: integer, minimum: 1, maximum: 99 }
+                delivery_address: { type: string, maxLength: 300, description: Required for delivery. Include a landmark. }
+                note: { type: string, maxLength: 280 }
+      responses:
+        '201':
+          description: Order waiting for payment
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+    get:
+      tags: [Commerce]
+      summary: My orders, newest first
+      description: Orders that were never paid for are left out.
+      operationId: listOrders
+      responses:
+        '200':
+          description: Orders
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Order' } }
+        '401': { $ref: '#/components/responses/Problem' }
+  /v1/orders/{id}:
+    get:
+      tags: [Commerce]
+      summary: One of my orders
+      operationId: getOrder
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200':
+          description: The order, with the handover code while it's in progress
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /v1/orders/{id}/cancel:
+    post:
+      tags: [Commerce]
+      summary: Cancel my order
+      description: Allowed until the shop accepts it. A paid order is refunded to the wallet at once.
+      operationId: cancelOrder
+      parameters: [ { $ref: '#/components/parameters/Id' }, { $ref: '#/components/parameters/IdempotencyKey' } ]
+      responses:
+        '200':
+          description: Cancelled
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /v1/orders/{id}/received:
+    post:
+      tags: [Commerce]
+      summary: Confirm I have my order
+      description: For when the shop can't take the handover code. The shop is paid.
+      operationId: orderReceived
+      parameters: [ { $ref: '#/components/parameters/Id' }, { $ref: '#/components/parameters/IdempotencyKey' } ]
+      responses:
+        '200':
+          description: Delivered
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '409': { $ref: '#/components/responses/Problem' }
+  /v1/merchants/{id}/shop:
+    get:
+      tags: [Commerce]
+      summary: The shop's ordering settings and catalog
+      description: Any member of the shop. Includes hidden products; archived ones are left out.
+      operationId: getShopSettings
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200':
+          description: Settings and products
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shop' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+    put:
+      tags: [Commerce]
+      summary: Change the shop's ordering settings
+      description: Owners and managers. Opening needs an approved shop with at least one product on sale.
+      operationId: putShopSettings
+      parameters: [ { $ref: '#/components/parameters/Id' }, { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                open: { type: boolean }
+                pickup: { type: boolean }
+                delivery: { type: boolean }
+                delivery_fee: { $ref: '#/components/schemas/Money' }
+                delivery_area: { type: string, maxLength: 200, description: Required when delivery is on. }
+                about: { type: string, maxLength: 500 }
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Shop' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+  /v1/merchants/{id}/products:
+    post:
+      tags: [Commerce]
+      summary: Add a product
+      description: Owners and managers. Up to 500 products that aren't archived.
+      operationId: createProduct
+      parameters: [ { $ref: '#/components/parameters/Id' }, { $ref: '#/components/parameters/IdempotencyKey' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductInput' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+  /v1/merchants/{id}/products/{product}:
+    put:
+      tags: [Commerce]
+      summary: Change a product
+      description: Owners and managers. Orders already placed keep the title and price they were placed with.
+      operationId: putProduct
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { name: product, in: path, required: true, schema: { type: string, format: uuid } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductInput' }
+      responses:
+        '200':
+          description: Saved
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+  /v1/merchants/{id}/orders:
+    get:
+      tags: [Commerce]
+      summary: The shop's paid orders
+      description: |
+        Any member. `active` (placed, accepted, ready, on the way; oldest first) or `done` (delivered or cancelled;
+        newest first). The customer's phone number is shown in full only on delivery orders in progress.
+      operationId: listShopOrders
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { name: state, in: query, schema: { type: string, enum: [active, done], default: active } }
+      responses:
+        '200':
+          description: Orders
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Order' } }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+  /v1/merchants/{id}/orders/{order}/{action}:
+    post:
+      tags: [Commerce]
+      summary: Move an order on
+      description: |
+        Owners, managers and cashiers. `accept` (within 20 minutes of the order being paid, or it's cancelled and
+        refunded), `ready`, `on_the_way` (delivery only), `hand_over` with the customer's `code` (the shop is paid;
+        after 5 wrong codes the customer must confirm in their app), `cancel` with a `note` the customer sees
+        (refunded at once).
+      operationId: shopOrderAction
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { name: order, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: action, in: path, required: true, schema: { type: string, enum: [accept, ready, on_the_way, hand_over, cancel] } }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                code: { type: string, pattern: '^[0-9]{4}$' }
+                note: { type: string, maxLength: 280 }
+      responses:
+        '200':
+          description: The order now
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
   /v1/admin/risk/cases:
     get:
       tags: [Admin]
@@ -1236,6 +1511,85 @@ components:
         failure: { oneOf: [ { $ref: '#/components/schemas/Problem' }, { type: 'null' } ] }
         receipt_url: { type: [string, 'null'], format: uri }
         created_at: { type: string, format: date-time }
+    Shop:
+      type: object
+      properties:
+        merchant_id: { type: string, format: uuid }
+        name: { type: string, example: Merkato Fresh }
+        category: { type: string }
+        city: { type: string }
+        open: { type: boolean, description: Taking orders now. }
+        pickup: { type: boolean }
+        delivery: { type: boolean, description: The shop delivers itself. }
+        delivery_fee: { $ref: '#/components/schemas/Money' }
+        delivery_area: { type: string }
+        about: { type: string }
+        product_count: { type: integer }
+        products: { type: array, items: { $ref: '#/components/schemas/Product' }, description: Single shop only. }
+    Product:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string, example: 'Teff flour, 5 kg' }
+        description: { type: string }
+        category: { type: string, description: The shop's own shelf name. }
+        price: { $ref: '#/components/schemas/Money' }
+        stock: { type: [integer, 'null'], description: Null when the shop doesn't count it. }
+        sold_out: { type: boolean }
+        status: { type: string, enum: [active, hidden, archived] }
+        updated_at: { type: string, format: date-time }
+    ProductInput:
+      type: object
+      required: [title, price]
+      properties:
+        title: { type: string, maxLength: 80 }
+        description: { type: string, maxLength: 500 }
+        category: { type: string, maxLength: 40 }
+        price: { $ref: '#/components/schemas/Money' }
+        stock: { type: [integer, 'null'], minimum: 0, maximum: 100000 }
+        status: { type: string, enum: [active, hidden, archived], default: active }
+    Order:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        number: { type: string, example: OR-100001 }
+        status: { type: string, enum: [pending_payment, placed, accepted, ready, on_the_way, delivered, cancelled] }
+        channel: { type: string, enum: [pickup, delivery] }
+        merchant_id: { type: string, format: uuid }
+        shop_name: { type: string }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              product_id: { type: string, format: uuid }
+              title: { type: string }
+              unit_price: { $ref: '#/components/schemas/Money' }
+              quantity: { type: integer }
+              line_total: { $ref: '#/components/schemas/Money' }
+        subtotal: { $ref: '#/components/schemas/Money' }
+        delivery_fee: { $ref: '#/components/schemas/Money' }
+        total: { $ref: '#/components/schemas/Money' }
+        delivery_address: { type: string }
+        note: { type: string }
+        payment_intent_id: { type: [string, 'null'], format: uuid }
+        payment_status: { type: string, description: The payment intent's status. }
+        handover_code: { type: string, description: 'Customer only, while the order is in progress. Never sent in notifications.' }
+        customer:
+          type: object
+          description: Shop only.
+          properties:
+            name: { type: string }
+            phone: { type: string, description: 'Full on delivery orders in progress, masked otherwise.' }
+        cancel_reason: { type: string, enum: ['', customer_cancelled, shop_declined, shop_cancelled, no_response, payment_failed, payment_not_finished] }
+        cancel_note: { type: string, description: The shop's words to the customer. }
+        accept_by: { type: [string, 'null'], format: date-time, description: Placed orders. Cancelled and refunded if the shop hasn't accepted by then. }
+        created_at: { type: string, format: date-time }
+        placed_at: { type: [string, 'null'], format: date-time }
+        accepted_at: { type: [string, 'null'], format: date-time }
+        ready_at: { type: [string, 'null'], format: date-time }
+        completed_at: { type: [string, 'null'], format: date-time }
+        cancelled_at: { type: [string, 'null'], format: date-time }
     FxQuote:
       type: object
       properties:
