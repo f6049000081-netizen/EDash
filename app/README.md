@@ -82,6 +82,15 @@ Production builds must point `API_BASE_URL` at an `https` address.
 - **Fingerprint or face confirmation.** Profile → "Confirm payments with fingerprint or face" (shown only on phones with a strong biometric sensor). Turning it on asks for the PIN, creates a second key that works only after the phone's biometric check, and registers its public key. Paying then shows the system prompt; "Use PIN", a failed check or a refusal from the server falls back to the PIN pad. Adding a fingerprint to the phone, or a PIN reset, turns it off.
 - `minSdk` is 23 (Android 6), which hardware-backed EC keys need.
 
+## Business (merchant) screens
+
+Profile → Business opens the shop for anyone who belongs to one, or the application form for anyone who doesn't.
+
+- **The shop screen** follows the merchant app design. It shows sales today and a "Show my QR" button, which displays the shop's EMVCo QR in black on white even in dark mode. The payments received refresh every 15 seconds.
+- **Owners, managers and accountants** also see the next payout, the payout account and the payout history.
+- **Owners** can change the payout account with their PIN. The sheet explains the 48-hour wait.
+- **Not built yet:** orders, products, promotions and insights from the design, because those modules don't exist yet.
+
 ## Signing key for dev builds
 
 Debug APKs are signed with the debug keystore kept in the `g1androidhome` Docker volume (`/root/.android`). Keep that volume: a build signed with a different key can't be installed over the app already on a phone ("App not installed"), and the old app has to be uninstalled first. Release builds will need a real upload key; see `android/app/build.gradle`.

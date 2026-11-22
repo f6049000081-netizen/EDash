@@ -309,7 +309,7 @@ func StaticQR(merchantNo, name, category, city string) string {
 	tlv(&b, "58", "ET")
 	tlv(&b, "59", latin(name, 25, "GEBEYA ONE MERCHANT"))
 	tlv(&b, "60", latin(city, 15, "ADDIS ABABA"))
-	if latin(name, 99, "") != name {
+	if strings.ContainsFunc(name, func(r rune) bool { return unicode.Is(unicode.Ethiopic, r) }) {
 		// Names in Ge'ez script go in the alternate-language template, so wallets can show them.
 		var lang strings.Builder
 		tlv(&lang, "00", "am")
@@ -336,6 +336,9 @@ func truncate(s string, n int) string {
 func latin(s string, n int, fallback string) string {
 	var b strings.Builder
 	for _, r := range s {
+		if f, ok := accentFold[r]; ok {
+			r = f
+		}
 		if r < 128 && unicode.IsPrint(r) {
 			b.WriteRune(r)
 		}
@@ -346,6 +349,20 @@ func latin(s string, n int, fallback string) string {
 	}
 	return truncate(out, n)
 }
+
+// accentFold maps the accented Latin letters seen in shop names to plain ones ("Café" → "Cafe").
+var accentFold = func() map[rune]rune {
+	m := map[rune]rune{}
+	for plain, accented := range map[rune]string{
+		'a': "àáâãäå", 'A': "ÀÁÂÃÄÅ", 'e': "èéêë", 'E': "ÈÉÊË", 'i': "ìíîï", 'I': "ÌÍÎÏ",
+		'o': "òóôõöø", 'O': "ÒÓÔÕÖØ", 'u': "ùúûü", 'U': "ÙÚÛÜ", 'c': "ç", 'C': "Ç", 'n': "ñ", 'N': "Ñ", 'y': "ýÿ", 'Y': "Ý",
+	} {
+		for _, r := range accented {
+			m[r] = plain
+		}
+	}
+	return m
+}()
 
 // crc16 is CRC-16/CCITT-FALSE, as EMVCo requires.
 func crc16(s string) uint16 {

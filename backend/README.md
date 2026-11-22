@@ -12,6 +12,7 @@ internal/payments/    intents, QR resolution, risk rules, confirm flow, partner 
 internal/rails/telebirr/  telebirr merchant API: signing, checkout, queryOrder, notification checks
 internal/recon/       statement import and matching
 internal/outbox/      outbox relay: publishes events in order to Kafka, or in-process without Kafka
+internal/merchants/   merchant sign-up (KYB), approval, shop QR, today's summary, payments received
 internal/payouts/     merchant payouts: batching, payout accounts, sending through a licensed partner
 internal/notify/      notifications from events, the in-app list, push tokens, Firebase (FCM) sending
 internal/platform/    principal, PIN hashing and lockout, idempotency middleware, outbox, problem errors
@@ -87,6 +88,24 @@ QR payments split the amount three ways: debit the payer, credit the merchant se
   - Confirming: the intent carries `confirm_challenge` (intent id, amount, fee and payee); the app signs those exact bytes and sends `biometric_signature`. The key works only for the device it was registered on.
   - A PIN reset clears biometric keys on every device. Turning it on sends a security notification to all the user's devices.
   - Refused signatures (`biometric_not_enrolled`, `biometric_failed`) tell the app to ask for the PIN.
+
+## Merchants
+
+- **Applying** (`POST /v1/merchants`). A signed-in user with a PIN applies with the shop name, registered name, TIN (10 digits), optional trade licence, category and city. The application goes to `kyb_review` and the applicant becomes its `owner`.
+  - One application under review per person. Sending the same one again returns it.
+  - A TIN can only be registered once.
+- **Approval** is an operations job. The operations console, with a second person's sign-off, is not built yet. `Approve` gives the shop:
+  - an 8-digit merchant number (random, last digit a Luhn check digit)
+  - a static EMVCo merchant-presented QR. The merchant account template (tag 26) uses the GUID `one.gebeya.pay`. Names are folded to plain Latin for tag 59, and Ge'ez names also go in tag 64. The CRC is CRC-16/CCITT-FALSE.
+  - Other wallets can parse the QR, but only Gebeya One resolves it until the national interoperable QR scheme registers the template.
+  - For local development: `./dev-approve-merchant.sh <merchant id | TIN>`. It runs `cmd/devtool`, which refuses any database that isn't local.
+- **Roles** (`merchant.members`):
+  - Every member sees the shop, today's sales and the payments received (`GET /v1/merchants/{id}/summary`, `/payments`). That's how a cashier checks a customer has paid.
+  - Cashiers don't see the registration details, payouts or the payout account.
+  - Only owners change the payout account.
+  - Strangers get 404.
+- **Payers** appear by first name and last initial ("Abebe K.").
+- **"Today"** is the day in Addis Ababa.
 
 ## Merchant payouts
 

@@ -116,7 +116,7 @@ func TestApplyAndApprove(t *testing.T) {
 		t.Fatalf("approve: %+v %v", approved, err)
 	}
 	payload, _, err := e.svc.QR(e.ctx, owner, m.ID)
-	if err != nil || !strings.Contains(payload, approved.MerchantNo) || !strings.Contains(payload, "5909Selam Caf") {
+	if err != nil || !strings.Contains(payload, approved.MerchantNo) || !strings.Contains(payload, "5910Selam Cafe") {
 		t.Fatalf("QR: %q %v", payload, err)
 	}
 	if again, err := e.svc.Approve(e.ctx, m.ID, uuid.New()); err != nil || again.MerchantNo != approved.MerchantNo {
@@ -199,6 +199,9 @@ func TestQRPayload(t *testing.T) {
 	am := merchants.StaticQR("12345674", "ቡና ቤት", "5812", "Adama")
 	if !strings.Contains(am, "5919GEBEYA ONE MERCHANT") || !strings.Contains(am, "64150002am0105ቡና ቤት") {
 		t.Errorf("amharic %s", am)
+	}
+	if cafe := merchants.StaticQR("12345674", "Buna Café", "5812", ""); !strings.Contains(cafe, "5909Buna Cafe") || strings.Contains(cafe, "0002am") {
+		t.Errorf("accented name: %s", cafe)
 	}
 	for range 50 {
 		if n := merchants.NewMerchantNo(); !merchants.ValidMerchantNo(n) {

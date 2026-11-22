@@ -6,6 +6,7 @@ import '../core/phone.dart';
 import '../l10n/strings.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
+import 'business.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -90,6 +91,8 @@ class ProfileScreen extends StatelessWidget {
               limitRow(s.t('limit_monthly'), p.limits!.monthlyRemaining.format()),
               limitRow(s.t('limit_balance'), p.limits!.maxBalance.format()),
             ]),
+          const SizedBox(height: G1.s6),
+          card([const BusinessTile()]),
           const SizedBox(height: G1.s6),
           card([
             const BiometricTile(),

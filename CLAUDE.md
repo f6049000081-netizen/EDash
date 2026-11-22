@@ -26,7 +26,9 @@ Wallet-centred super app for Ethiopia and the diaspora. The original brief is `M
 
 11. **Merchant payouts** (2026-11-22): batching of unpaid QR sales into payouts (reserved in the ledger), payout accounts (owner + PIN, 48 h cooling-off, notifications), sending through a `payouts.Rail` (none connected: `rail_unavailable`), retries and holds, payout history API.
 
-**Next on the roadmap:** the merchant side: merchant sign-up (KYB) and a merchant console, then an operations console with maker-checker (release held payouts, risk cases). Also open: the iOS Secure Enclave side of device keys, key attestation and then `DPOP_REQUIRED=true`, a list of signed-in devices with sign-out, and a licensed payout partner. Waiting on others: a native-speaker review of the Afaan Oromo and Tigrinya text, and a Firebase project for lock-screen pushes. Telebirr go-live work is listed under "Next" in `backend/README.md`.
+12. **Merchant sign-up and Business screens** (2026-11-22): KYB application, approval (`Approve`: merchant number with Luhn digit, EMVCo static QR; dev-only `backend/dev-approve-merchant.sh`), roles, today's summary, payments received; in the app, Profile → Business (apply, shop screen with QR, payouts, payout account with PIN).
+
+**Next on the roadmap:** the operations console with maker-checker: approve merchant applications (with KYB document upload), release held payouts, risk cases. Then a web merchant console (orders, products) once commerce exists. Also open: the iOS Secure Enclave side of device keys, key attestation and then `DPOP_REQUIRED=true`, a list of signed-in devices with sign-out, and a licensed payout partner. Waiting on others: a native-speaker review of the Afaan Oromo and Tigrinya text, and a Firebase project for lock-screen pushes. Telebirr go-live work is listed under "Next" in `backend/README.md`.
 
 ## Running things (Windows; Go is NOT installed, everything runs in Docker)
 
