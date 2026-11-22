@@ -45,6 +45,7 @@ import (
 	"superapp/backend/internal/httpapi"
 	"superapp/backend/internal/identity"
 	"superapp/backend/internal/ledger"
+	"superapp/backend/internal/merchants"
 	"superapp/backend/internal/notify"
 	"superapp/backend/internal/outbox"
 	"superapp/backend/internal/payments"
@@ -185,7 +186,8 @@ func run(log *slog.Logger) error {
 		Addr: addr,
 		Handler: (&httpapi.Server{
 			Pool: pool, Ledger: l, Payments: svc, Identity: ids, Auth: ids, Log: log, Notify: notifier, Payouts: pay,
-			Webhooks: webhooks, Sandbox: true, ClientIPHeader: os.Getenv("CLIENT_IP_HEADER"),
+			Merchants: &merchants.Service{Pool: pool},
+			Webhooks:  webhooks, Sandbox: true, ClientIPHeader: os.Getenv("CLIENT_IP_HEADER"),
 		}).Routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,

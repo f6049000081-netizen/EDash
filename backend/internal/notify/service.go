@@ -26,7 +26,7 @@ var Topics = []string{
 	"payment.succeeded", "payment.failed", "payment.held",
 	"identity.signed_in", "identity.pin_reset", "identity.pin_changed", "identity.refresh_token_reused",
 	"identity.biometric_enrolled",
-	"payout.settled", "payout.on_hold", "merchant.payout_destination_changed",
+	"payout.settled", "payout.on_hold", "merchant.payout_destination_changed", "merchant.applied", "merchant.approved",
 }
 
 // Push is what a device shows. Data lets the app open the right screen.
@@ -77,7 +77,7 @@ type identityEvent struct {
 // Handle implements outbox.Handler. It is idempotent: a redelivered event adds nothing.
 func (s *Service) Handle(ctx context.Context, m outbox.Message) error {
 	switch {
-	case strings.HasPrefix(m.Topic, "payout.") || m.Topic == "merchant.payout_destination_changed":
+	case strings.HasPrefix(m.Topic, "payout.") || strings.HasPrefix(m.Topic, "merchant."):
 		var ev merchantEvent
 		if err := json.Unmarshal(m.Payload, &ev); err != nil {
 			s.warn("unreadable merchant event", m, err)
@@ -222,6 +222,10 @@ func (s *Service) merchant(ctx context.Context, m outbox.Message, ev merchantEve
 			kind = "payout_on_hold"
 		}
 		data["payout_id"] = ev.PayoutID.String()
+	case "merchant.applied":
+		kind = "merchant_applied"
+	case "merchant.approved":
+		kind = "merchant_approved"
 	case "merchant.payout_destination_changed":
 		kind = "payout_destination_changed"
 		args["destination"] = ev.Label

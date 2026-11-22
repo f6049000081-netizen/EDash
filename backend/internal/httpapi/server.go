@@ -15,6 +15,7 @@ import (
 
 	"superapp/backend/internal/identity"
 	"superapp/backend/internal/ledger"
+	"superapp/backend/internal/merchants"
 	"superapp/backend/internal/money"
 	"superapp/backend/internal/notify"
 	"superapp/backend/internal/payments"
@@ -23,15 +24,16 @@ import (
 )
 
 type Server struct {
-	Pool     *pgxpool.Pool
-	Ledger   *ledger.Ledger
-	Payments *payments.Service
-	Identity *identity.Service
-	Notify   *notify.Service        // nil: no notification endpoints
-	Payouts  *payouts.Service       // nil: no merchant payout endpoints
-	Auth     platform.Authenticator // normally Identity; tests may substitute their own
-	Log      *slog.Logger
-	Sandbox  bool // enables POST /v1/sandbox/topups
+	Pool      *pgxpool.Pool
+	Ledger    *ledger.Ledger
+	Payments  *payments.Service
+	Identity  *identity.Service
+	Notify    *notify.Service        // nil: no notification endpoints
+	Payouts   *payouts.Service       // nil: no merchant payout endpoints
+	Merchants *merchants.Service     // nil: no merchant endpoints
+	Auth      platform.Authenticator // normally Identity; tests may substitute their own
+	Log       *slog.Logger
+	Sandbox   bool // enables POST /v1/sandbox/topups
 	// Webhooks verifies partner notifications, keyed by rail. A rail without an entry answers 404.
 	Webhooks map[string]NotificationVerifier
 	// ClientIPHeader names a header set by a trusted proxy carrying the client address
@@ -67,6 +69,14 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /v1/webhooks/rails/{rail}", s.railNotification)
 	mux.Handle("GET /v1/wallet/balances", authed(s.getBalances))
 	mux.Handle("GET /v1/activity", authed(s.listActivity))
+	if s.Merchants != nil {
+		mux.Handle("POST /v1/merchants", authed(s.applyMerchant))
+		mux.Handle("GET /v1/me/merchants", authed(s.myMerchants))
+		mux.Handle("GET /v1/merchants/{id}", authed(s.getMerchant))
+		mux.Handle("GET /v1/merchants/{id}/summary", authed(s.merchantSummary))
+		mux.Handle("GET /v1/merchants/{id}/payments", authed(s.merchantPayments))
+		mux.Handle("GET /v1/merchants/{id}/qr", authed(s.merchantQR))
+	}
 	if s.Payouts != nil {
 		mux.Handle("GET /v1/merchants/{id}/payouts", authed(s.listPayouts))
 		mux.Handle("GET /v1/merchants/{id}/payout-destination", authed(s.getPayoutDestination))

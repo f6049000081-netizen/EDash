@@ -662,36 +662,130 @@ paths:
     post:
       tags: [Merchants]
       summary: Apply as a merchant (KYB)
+      description: |
+        The signed-in user (who must have set a PIN) becomes the owner. The shop can't take payments until
+        operations staff approve it; approval gives it a merchant number and a payment QR. Sending the same
+        application again returns the first one; a person can have one application under review at a time.
       operationId: applyMerchant
-      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [legal_name, trade_name, tin, category_code]
+              required: [legal_name, trade_name, tin, category_code, city]
               properties:
-                legal_name: { type: string }
-                trade_name: { type: string }
+                legal_name: { type: string, maxLength: 120 }
+                trade_name: { type: string, maxLength: 60 }
                 tin: { type: string, pattern: '^[0-9]{10}$' }
                 business_licence: { type: string }
-                category_code: { type: string }
+                category_code:
+                  type: string
+                  enum: ['5411', '5812', '5814', '5912', '5651', '5732', '5251', '7230', '4121', '8299', '5999']
+                city: { type: string, maxLength: 40 }
       responses:
         '201':
           description: Application received; status is `kyb_review`
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Merchant' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/me/merchants:
+    get:
+      tags: [Merchants]
+      summary: Businesses the signed-in user belongs to, with their role
+      operationId: listMyMerchants
+      responses:
+        '200':
+          description: Businesses, oldest membership first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Merchant' } }
+
+  /v1/merchants/{id}:
+    get:
+      tags: [Merchants]
+      summary: One business the user belongs to
+      description: Cashiers don't see the registration details (legal name, TIN, licence). Others get 404.
+      operationId: getMerchant
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200':
+          description: Merchant
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Merchant' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/merchants/{id}/qr:
+    get:
+      tags: [Merchants]
+      summary: The shop's payment QR
+      description: |
+        An EMVCo merchant-presented static QR (the payer enters the amount). The merchant account template
+        uses the GUID `one.gebeya.pay`; until the national interoperable QR scheme registers it, only Gebeya
+        One resolves it. 409 `merchant_not_active` before approval.
+      operationId: getMerchantQR
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200':
+          description: QR payload
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  payload: { type: string }
+                  merchant_no: { type: string, pattern: '^[0-9]{8}$' }
+                  trade_name: { type: string }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+
+  /v1/merchants/{id}/payments:
+    get:
+      tags: [Merchants]
+      summary: Payments the shop received, newest first
+      description: Every member, cashiers included. Payers are shown by first name and initial.
+      operationId: listMerchantPayments
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { $ref: '#/components/parameters/Cursor' }
+        - { $ref: '#/components/parameters/Limit' }
+      responses:
+        '200':
+          description: Payments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string, format: uuid }
+                        payer_name: { type: string, example: Abebe K. }
+                        amount: { $ref: '#/components/schemas/Money' }
+                        completed_at: { type: string, format: date-time }
+                  next_cursor: { type: [string, 'null'] }
+        '404': { $ref: '#/components/responses/Problem' }
 
   /v1/merchants/{id}/summary:
     get:
       tags: [Merchants]
       summary: Today's figures for the merchant app and dashboard
+      description: |
+        "Today" is the day in Addis Ababa. Cashiers get sales only; `pending_payout` and `next_payout` are null
+        for them. `pending_payout` is money earned and not yet paid out (unbatched sales plus reserved payouts).
       operationId: getMerchantSummary
       parameters:
         - { $ref: '#/components/parameters/Id' }
-        - { name: branch_id, in: query, schema: { type: string, format: uuid } }
       responses:
         '200':
           description: Summary
@@ -701,10 +795,19 @@ paths:
                 type: object
                 properties:
                   sales_today: { $ref: '#/components/schemas/Money' }
-                  orders_today: { type: integer }
+                  payments_today: { type: integer }
                   average_basket: { $ref: '#/components/schemas/Money' }
-                  next_payout: { $ref: '#/components/schemas/Payout' }
-        '403': { $ref: '#/components/responses/Problem' }
+                  pending_payout:
+                    oneOf: [ { $ref: '#/components/schemas/Money' }, { type: 'null' } ]
+                  next_payout:
+                    type: [object, 'null']
+                    properties:
+                      id: { type: string, format: uuid }
+                      net: { $ref: '#/components/schemas/Money' }
+                      status: { type: string, enum: [scheduled, sent, on_hold] }
+                      hold_reason: { type: [string, 'null'] }
+                      scheduled_for: { type: string, format: date-time }
+        '404': { $ref: '#/components/responses/Problem' }
 
   /v1/merchants/{id}/payouts:
     get:
@@ -1107,7 +1210,7 @@ components:
       required: [id, kind, title, body, data, created_at, read]
       properties:
         id: { type: string, format: uuid }
-        kind: { type: string, enum: [money_received, payment_succeeded, payment_failed, topup_succeeded, topup_failed, topup_held, new_device, pin_reset, pin_changed, session_revoked, biometric_enrolled, payout_settled, payout_on_hold, payout_on_hold_no_destination, payout_on_hold_merchant_suspended, payout_on_hold_rejected_by_partner, payout_on_hold_too_many_failures, payout_destination_changed] }
+        kind: { type: string, enum: [money_received, payment_succeeded, payment_failed, topup_succeeded, topup_failed, topup_held, new_device, pin_reset, pin_changed, session_revoked, biometric_enrolled, payout_settled, payout_on_hold, payout_on_hold_no_destination, payout_on_hold_merchant_suspended, payout_on_hold_rejected_by_partner, payout_on_hold_too_many_failures, payout_destination_changed, merchant_applied, merchant_approved] }
         title: { type: string, example: Money received }
         body: { type: string, example: 'Abebe sent you ETB 150.00.' }
         data:
@@ -1146,9 +1249,17 @@ components:
       properties:
         id: { type: string, format: uuid }
         trade_name: { type: string }
+        legal_name: { type: string, description: Not shown to cashiers. }
+        tin: { type: string, description: Not shown to cashiers. }
+        business_licence: { type: string, description: Not shown to cashiers. }
+        category_code: { type: string }
+        city: { type: string }
         status: { type: string, enum: [applied, kyb_review, active, suspended, closed] }
-        plan: { type: string, enum: [free, pro] }
+        merchant_no: { type: [string, 'null'], description: 8 digits with a Luhn check digit; given on approval. }
+        role: { type: string, enum: [owner, manager, cashier, accountant], description: The caller's role. }
         payout_schedule: { type: string, enum: [instant, daily, weekly] }
+        created_at: { type: string, format: date-time }
+        approved_at: { type: [string, 'null'], format: date-time }
     Payout:
       type: object
       properties:

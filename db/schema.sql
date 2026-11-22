@@ -394,6 +394,9 @@ CREATE TABLE merchant.merchants (
     plan                TEXT NOT NULL DEFAULT 'free' CHECK (plan IN ('free', 'pro')),
     status              TEXT NOT NULL DEFAULT 'applied' CHECK (status IN ('applied', 'kyb_review', 'active', 'suspended', 'closed')),
     payout_schedule     TEXT NOT NULL DEFAULT 'daily' CHECK (payout_schedule IN ('instant', 'daily', 'weekly')),
+    merchant_no         TEXT UNIQUE CHECK (merchant_no ~ '^[0-9]{8}$'),  -- given on approval; printed on the shop's QR
+    city                TEXT,
+    applied_by          UUID REFERENCES identity.users(id),
     approved_by         UUID,
     approved_at         TIMESTAMPTZ,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),

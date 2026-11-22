@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -26,6 +27,7 @@ import (
 	"superapp/backend/internal/httpapi"
 	"superapp/backend/internal/identity"
 	"superapp/backend/internal/ledger"
+	"superapp/backend/internal/merchants"
 	"superapp/backend/internal/notify"
 	"superapp/backend/internal/outbox"
 	"superapp/backend/internal/payments"
@@ -107,7 +109,8 @@ func TestEndToEndSignInAndPay(t *testing.T) {
 	notifier := &notify.Service{Pool: pool, Log: log}
 	srv := httptest.NewServer((&httpapi.Server{
 		Pool: pool, Ledger: l, Payments: pay, Identity: ids, Auth: ids, Log: log, Sandbox: true, Notify: notifier,
-		Payouts: payouts.NewService(pool, l, &platform.PINVerifier{Pool: pool}),
+		Payouts:   payouts.NewService(pool, l, &platform.PINVerifier{Pool: pool}),
+		Merchants: &merchants.Service{Pool: pool},
 	}).Routes())
 	defer srv.Close()
 
@@ -286,6 +289,55 @@ func TestEndToEndSignInAndPay(t *testing.T) {
 	}
 	if st, p := alice.do("GET", "/v1/merchants/"+shop.String()+"/payouts", nil, false); st != http.StatusOK || len(p["items"].([]any)) != 0 {
 		t.Errorf("payouts: %d %v", st, p)
+	}
+
+	// Applying as a merchant: under review, no QR until operations approve it; then the QR pays the shop.
+	taxID := fmt.Sprintf("%010d", time.Now().UnixNano()%10_000_000_000)
+	application := map[string]any{"legal_name": "Bob Trading", "trade_name": "Bob's Kiosk", "tin": taxID,
+		"category_code": "5411", "city": "Adama"}
+	st, applied := bob.do("POST", "/v1/merchants", application, false)
+	if st != http.StatusCreated || applied["status"] != "kyb_review" || applied["role"] != "owner" || applied["merchant_no"] != nil {
+		t.Fatalf("apply: %d %v", st, applied)
+	}
+	kiosk := applied["id"].(string)
+	if st, p := bob.do("GET", "/v1/merchants/"+kiosk+"/qr", nil, false); st != http.StatusConflict || p["code"] != "merchant_not_active" {
+		t.Errorf("QR before approval: %d %v", st, p)
+	}
+	if st, p := alice.do("GET", "/v1/merchants/"+kiosk, nil, false); st != http.StatusNotFound {
+		t.Errorf("someone else's application: %d %v", st, p)
+	}
+	if _, err := (&merchants.Service{Pool: pool}).Approve(ctx, uuid.MustParse(kiosk), uuid.New()); err != nil {
+		t.Fatal(err)
+	}
+	st, qr := bob.do("GET", "/v1/merchants/"+kiosk+"/qr", nil, false)
+	if st != http.StatusOK || !strings.HasPrefix(qr["payload"].(string), "000201") || qr["merchant_no"] == "" {
+		t.Fatalf("QR: %d %v", st, qr)
+	}
+	carol := signIn(phone(), "signup", "carol-phone")
+	if st, p := carol.do("PUT", "/v1/auth/pin", map[string]any{"new_pin": "582047"}, true); st != http.StatusNoContent {
+		t.Fatalf("carol's PIN: %d %v", st, p)
+	}
+	if st, p := carol.do("POST", "/v1/sandbox/topups", map[string]any{"amount": map[string]any{"amount_minor": 500_00, "currency": "ETB"}}, true); st != http.StatusCreated {
+		t.Fatalf("carol's top-up: %d %v", st, p)
+	}
+	st, qrIntent := carol.do("POST", "/v1/payment-intents", map[string]any{
+		"kind": "qr_merchant", "qr_payload": qr["payload"], "amount": map[string]any{"amount_minor": 120_00, "currency": "ETB"}}, true)
+	if st != http.StatusCreated || qrIntent["payee"].(map[string]any)["display_name"] != "Bob's Kiosk" {
+		t.Fatalf("paying the new QR: %d %v", st, qrIntent)
+	}
+	if st, p := carol.do("POST", "/v1/payment-intents/"+qrIntent["id"].(string)+"/confirm", map[string]any{"pin": "582047"}, true); st != http.StatusOK || p["status"] != "succeeded" {
+		t.Fatalf("confirm: %d %v", st, p)
+	}
+	st, sum := bob.do("GET", "/v1/merchants/"+kiosk+"/summary", nil, false)
+	if st != http.StatusOK || sum["payments_today"] != float64(1) || sum["sales_today"].(map[string]any)["amount_minor"] != float64(120_00) {
+		t.Errorf("summary: %d %v", st, sum)
+	}
+	st, feed := bob.do("GET", "/v1/merchants/"+kiosk+"/payments", nil, false)
+	if items, _ := feed["items"].([]any); st != http.StatusOK || len(items) != 1 {
+		t.Errorf("payments: %d %v", st, feed)
+	}
+	if st, p := bob.do("GET", "/v1/me/merchants", nil, false); st != http.StatusOK || len(p["items"].([]any)) != 2 {
+		t.Errorf("bob's businesses (cashier at Alem Shop, owner of the kiosk): %d %v", st, p)
 	}
 
 	// Refresh and logout over HTTP.
