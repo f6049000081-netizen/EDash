@@ -1,0 +1,6 @@
+.env
+.env.*
+.dex/
+.s3/
+bin/
+*.md
