@@ -82,6 +82,10 @@ Production builds must point `API_BASE_URL` at an `https` address.
 - **Fingerprint or face confirmation.** Profile → "Confirm payments with fingerprint or face" (shown only on phones with a strong biometric sensor). Turning it on asks for the PIN, creates a second key that works only after the phone's biometric check, and registers its public key. Paying then shows the system prompt; "Use PIN", a failed check or a refusal from the server falls back to the PIN pad. Adding a fingerprint to the phone, or a PIN reset, turns it off.
 - `minSdk` is 23 (Android 6), which hardware-backed EC keys need.
 
+## Signing key for dev builds
+
+Debug APKs are signed with the debug keystore kept in the `g1androidhome` Docker volume (`/root/.android`). Keep that volume: a build signed with a different key can't be installed over the app already on a phone ("App not installed"), and the old app has to be uninstalled first. Release builds will need a real upload key; see `android/app/build.gradle`.
+
 ## Not done yet
 
 - Device attestation. At sign-in the app sends a random install ID, kept in secure storage, as the device `attestation`. That's enough for the dev server, which only uses it to recognise the device. Production needs Play Integrity and App Attest tokens, and the production verifiers reject an install ID.
