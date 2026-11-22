@@ -1,0 +1,9 @@
+{{define "title"}}{{.T "signed_out"}}{{end}}
+{{define "content"}}
+<section class="card signin">
+  <div class="brand">Gebeya One <span class="tag">{{.T "business"}}</span></div>
+  <h1>{{.T "signed_out"}}</h1>
+  <p>{{.T "signed_out_body"}}</p>
+  <p><a class="btn" href="/business/login">{{.T "sign_in_again"}}</a></p>
+</section>
+{{end}}

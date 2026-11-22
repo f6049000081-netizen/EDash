@@ -12,6 +12,7 @@ import '../core/phone.dart';
 import '../l10n/strings.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
+import 'computer.dart';
 import 'shop_admin.dart';
 
 Future<T?> _sheet<T>(BuildContext context, Widget child) => showModalBottomSheet<T>(
@@ -446,6 +447,13 @@ class _BusinessScreenState extends State<BusinessScreen> with WidgetsBindingObse
           subtitle: Text(s.t('catalog_sub')),
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => CatalogScreen(m))),
+        ),
+        ListTile(
+          leading: const Icon(Icons.computer_outlined),
+          title: Text(s.t('web_title')),
+          subtitle: Text(s.t('web_tile_sub')),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ComputerSignInScreen(m))),
         ),
       ]),
       if (m.seesMoney) ...[

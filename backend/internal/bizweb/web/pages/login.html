@@ -1,0 +1,12 @@
+{{define "title"}}{{.T "sign_in_title"}}{{end}}
+{{define "content"}}
+<section class="card signin">
+  <div class="brand">Gebeya One <span class="tag">{{.T "business"}}</span></div>
+  <h1>{{.T "sign_in_title"}}</h1>
+  <p>{{.T "sign_in_steps"}}</p>
+  <p class="code" aria-label="{{.Data.Code}}">{{.Data.Code}}</p>
+  <p class="muted">{{.T "sign_in_expires"}}</p>
+  <p class="note">{{.T "sign_in_safety"}}</p>
+  <p><a href="/business/login?new=1">{{.T "sign_in_new"}}</a></p>
+</section>
+{{end}}

@@ -1,0 +1,46 @@
+{{define "content"}}
+{{$d := .Data}}
+<header class="head">
+  <div>
+    <p class="muted">{{.T "today"}}</p>
+    <h1>{{if .S.Name}}{{.T "hello" "name" .S.Name}}{{else}}{{.T "hello_plain"}}{{end}}</h1>
+  </div>
+  {{if .S.Manages}}<a class="btn" href="/business/products/new">{{.T "add_product"}}</a>{{end}}
+</header>
+
+<section class="tiles" aria-label="{{.T "today"}}">
+  <div class="card"><p class="label">{{.T "sales_today"}}</p><p class="big num">{{etb $d.Summary.SalesToday}}</p><p class="muted">{{.T "payments_n" "n" $d.Summary.PaymentsToday}}</p></div>
+  <div class="card"><p class="label">{{.T "average_basket"}}</p><p class="big num">{{etb $d.Summary.AverageBasket}}</p></div>
+  <div class="card"><p class="label">{{.T "in_progress"}}</p><p class="big num">{{len $d.Orders}}</p><p class="muted">{{if $d.Waiting}}{{.T "accept_waiting" "n" $d.Waiting}}{{else}}{{.T "none_waiting"}}{{end}}</p></div>
+  {{if .S.SeesMoney}}
+  <div class="card"><p class="label">{{.T "next_payout"}}</p>
+    {{if $d.Summary.NextPayout}}<p class="big num">{{etb $d.Summary.NextPayout.Net}}</p><p class="muted">{{day $d.Summary.NextPayout.ScheduledFor}}{{if $d.Summary.NextPayout.HoldReason}} · {{.T (printf "hold_%s" $d.Summary.NextPayout.HoldReason)}}{{end}}</p>
+    {{else}}<p class="big num">—</p><p class="muted">{{.T "next_payout_none"}}</p>{{end}}
+  </div>
+  {{end}}
+</section>
+
+<section class="cols">
+  <div class="card">
+    <div class="row"><h2>{{.T "nav_orders"}}</h2><a href="/business/orders">{{.T "see_all"}}</a></div>
+    {{if $d.Orders}}{{template "orderTable" (dict "Orders" $d.Orders "P" . "Return" "home")}}
+    {{else}}<p class="muted">{{.T "orders_live_none"}}</p>{{end}}
+  </div>
+  <div class="stack">
+    <div class="card {{if $d.Shop.Open}}tint{{else}}warn{{end}}">
+      <h2>{{if $d.Shop.Open}}{{.T "shop_taking"}}{{else}}{{.T "shop_not_taking"}}{{end}}</h2>
+      <p class="muted">{{if $d.Shop.Open}}{{.T "shop_open_hint"}}{{else}}{{.T "shop_closed_hint"}}{{end}}</p>
+      {{if .S.Manages}}
+      <form method="post" action="/business/storefront/open"><input type="hidden" name="csrf" value="{{.S.CSRF}}">
+        <input type="hidden" name="open" value="{{if $d.Shop.Open}}0{{else}}1{{end}}">
+        <button class="btn {{if $d.Shop.Open}}soft{{end}}">{{if $d.Shop.Open}}{{.T "close_shop"}}{{else}}{{.T "open_shop"}}{{end}}</button></form>
+      {{end}}
+    </div>
+    <div class="card">
+      <div class="row"><h2>{{.T "running_low"}}</h2><a href="/business/products">{{.T "nav_products"}}</a></div>
+      {{if $d.LowStock}}{{range $d.LowStock}}<div class="kv"><span>{{.Title}}</span><span class="pill {{if eq (stock .) "0"}}bad{{else}}warn{{end}}">{{if eq (stock .) "0"}}{{$.T "sold_out"}}{{else}}{{$.T "n_left" "n" (stock .)}}{{end}}</span></div>{{end}}
+      {{else}}<p class="muted">{{.T "running_low_none"}}</p>{{end}}
+    </div>
+  </div>
+</section>
+{{end}}

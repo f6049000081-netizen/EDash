@@ -25,7 +25,7 @@ import (
 var Topics = []string{
 	"payment.succeeded", "payment.failed", "payment.held",
 	"identity.signed_in", "identity.pin_reset", "identity.pin_changed", "identity.refresh_token_reused",
-	"identity.biometric_enrolled", "identity.account_frozen", "identity.account_unfrozen",
+	"identity.biometric_enrolled", "identity.account_frozen", "identity.account_unfrozen", "identity.web_signed_in",
 	"payout.settled", "payout.on_hold", "merchant.payout_destination_changed", "merchant.applied", "merchant.approved",
 	"merchant.rejected", "merchant.suspended", "merchant.reinstated", "merchant.document_rejected",
 	"order.placed", "order.accepted", "order.ready", "order.on_the_way", "order.delivered", "order.cancelled",
@@ -74,6 +74,8 @@ type identityEvent struct {
 	NewDevice bool      `json:"new_device"`
 	Platform  string    `json:"platform"`
 	Purpose   string    `json:"purpose"`
+	Browser   string    `json:"browser"` // identity.web_signed_in
+	Shop      string    `json:"shop"`
 }
 
 // Handle implements outbox.Handler. It is idempotent: a redelivered event adds nothing.
@@ -197,6 +199,9 @@ func (s *Service) security(ctx context.Context, m outbox.Message, ev identityEve
 		kind = "account_unfrozen"
 	case "identity.biometric_enrolled":
 		kind = "biometric_enrolled"
+	case "identity.web_signed_in":
+		kind = "web_signed_in"
+		args["browser"], args["shop"] = ev.Browser, ev.Shop
 	default:
 		return nil
 	}

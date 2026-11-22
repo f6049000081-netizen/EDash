@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"superapp/backend/internal/bizweb"
 	"superapp/backend/internal/commerce"
 	"superapp/backend/internal/identity"
 	"superapp/backend/internal/kyb"
@@ -37,7 +38,9 @@ type Server struct {
 	Commerce  *commerce.Service      // nil: no shop or order endpoints
 	Auth      platform.Authenticator // normally Identity; tests may substitute their own
 	Log       *slog.Logger
-	Sandbox   bool // enables POST /v1/sandbox/topups
+	// Web approves sign-ins to the web business console from the app. Nil leaves those routes out.
+	Web     *bizweb.Store
+	Sandbox bool // enables POST /v1/sandbox/topups
 	// Webhooks verifies partner notifications, keyed by rail. A rail without an entry answers 404.
 	Webhooks map[string]NotificationVerifier
 	// ClientIPHeader names a header set by a trusted proxy carrying the client address
@@ -96,6 +99,9 @@ func (s *Server) Routes() http.Handler {
 	}
 	if s.Commerce != nil {
 		s.commerceRoutes(mux, authed, mutating)
+	}
+	if s.Web != nil {
+		s.webLoginRoutes(mux, authed)
 	}
 	mux.Handle("POST /v1/qr/resolve", authed(s.resolveQR))
 	mux.Handle("POST /v1/payment-intents", mutating(s.createIntent))

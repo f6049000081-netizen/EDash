@@ -1,0 +1,83 @@
+{{define "layout"}}<!doctype html>
+<html lang="{{.Lang}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+{{if .Refresh}}<meta http-equiv="refresh" content="{{.Refresh}}">{{end}}
+<title>{{block "title" .}}{{.T "business"}}{{end}} · Gebeya One</title>
+<link rel="stylesheet" href="/business/static/biz.css">
+</head>
+<body>
+{{if .S}}
+<div class="shell">
+  <aside class="side">
+    <div class="brand">Gebeya One <span class="tag">{{.T "business"}}</span></div>
+    <div class="shop">
+      <span class="avatar" aria-hidden="true">{{initial .S.Shop}}</span>
+      <span><span class="shop-name">{{.S.Shop}}</span><span class="muted">{{.T (printf "role_%s" .S.Role)}}</span></span>
+    </div>
+    <nav aria-label="{{.T "nav_sections"}}">
+      <a href="/business/" {{if eq .Nav "home"}}aria-current="page"{{end}}>{{.T "nav_home"}}</a>
+      <a href="/business/orders" {{if eq .Nav "orders"}}aria-current="page"{{end}}><span>{{.T "nav_orders"}}</span>{{if .Live}}<span class="count">{{.T "live_count" "n" .Live}}</span>{{end}}</a>
+      <a href="/business/products" {{if eq .Nav "products"}}aria-current="page"{{end}}>{{.T "nav_products"}}</a>
+      <a href="/business/storefront" {{if eq .Nav "storefront"}}aria-current="page"{{end}}>{{.T "nav_storefront"}}</a>
+      <a href="/business/money" {{if eq .Nav "money"}}aria-current="page"{{end}}>{{.T "nav_money"}}</a>
+    </nav>
+    <div class="me">
+      <div class="me-name">{{.S.Name}}</div>
+      {{template "langs" .}}
+      <form method="post" action="/business/logout"><input type="hidden" name="csrf" value="{{.S.CSRF}}"><button class="link">{{.T "sign_out"}}</button></form>
+    </div>
+  </aside>
+  <main class="main">
+    {{if .Message}}<p class="flash" role="status">{{.Message}}</p>{{end}}
+    {{if .Error}}<p class="flash bad" role="alert">{{.Error}}</p>{{end}}
+    {{template "content" .}}
+    <p class="muted foot">{{.T "footer" "time" (when .S.ExpiresAt)}}</p>
+  </main>
+</div>
+{{else}}
+<main class="lone">{{template "content" .}}{{template "langs" .}}</main>
+{{end}}
+</body>
+</html>{{end}}
+
+{{define "langs"}}<nav class="langs" aria-label="{{.T "language"}}">{{range .Langs}}<a href="/business/lang?l={{.Code}}&amp;next={{$.Path}}" lang="{{.Code}}" {{if eq .Code $.Lang}}aria-current="true"{{end}}>{{.Name}}</a>{{end}}</nav>{{end}}
+
+{{define "status"}}<span class="pill {{pill .}}">{{end}}
+
+{{define "nextStep"}}{{/* . is a map: O order, P page, Return */}}
+{{$o := .O}}{{$p := .P}}
+{{if $p.S.Handles}}
+  {{if eq $o.Status "placed"}}
+  <form method="post" action="/business/orders/{{$o.ID}}/accept" class="inline"><input type="hidden" name="csrf" value="{{$p.S.CSRF}}"><input type="hidden" name="return" value="{{.Return}}"><button class="btn small">{{$p.T "accept"}}</button></form>
+  {{else if eq $o.Status "accepted"}}
+  <form method="post" action="/business/orders/{{$o.ID}}/ready" class="inline"><input type="hidden" name="csrf" value="{{$p.S.CSRF}}"><input type="hidden" name="return" value="{{.Return}}"><button class="btn small">{{if eq $o.Channel "delivery"}}{{$p.T "ready_delivery"}}{{else}}{{$p.T "ready_pickup"}}{{end}}</button></form>
+  {{else if and (eq $o.Status "ready") (eq $o.Channel "delivery")}}
+  <form method="post" action="/business/orders/{{$o.ID}}/on_the_way" class="inline"><input type="hidden" name="csrf" value="{{$p.S.CSRF}}"><input type="hidden" name="return" value="{{.Return}}"><button class="btn small">{{$p.T "send_out"}}</button></form>
+  {{else if or (eq $o.Status "ready") (eq $o.Status "on_the_way")}}
+  <a class="btn small soft" href="/business/orders/{{$o.ID}}#handover">{{$p.T "hand_over"}}</a>
+  {{else}}
+  <a class="btn small soft" href="/business/orders/{{$o.ID}}">{{$p.T "open"}}</a>
+  {{end}}
+{{else}}
+  <a class="btn small soft" href="/business/orders/{{$o.ID}}">{{$p.T "open"}}</a>
+{{end}}
+{{end}}
+
+{{define "orderTable"}}{{/* . is a map: Orders, P, Return */}}
+{{$p := .P}}{{$ret := .Return}}
+<div class="scroll"><table>
+  <thead><tr><th>{{$p.T "col_order"}}</th><th>{{$p.T "col_customer"}}</th><th>{{$p.T "col_channel"}}</th><th class="num">{{$p.T "col_total"}}</th><th>{{$p.T "col_status"}}</th><th>{{$p.T "col_placed"}}</th><th><span class="sr">{{$p.T "next_step"}}</span></th></tr></thead>
+  <tbody>{{range .Orders}}
+  <tr>
+    <td><a href="/business/orders/{{.ID}}" class="strong">{{.Number}}</a></td>
+    <td>{{.CustomerName}}</td>
+    <td class="muted">{{$p.T .Channel}} · {{$n := itemCount .}}{{if eq $n 1}}{{$p.T "one_item"}}{{else}}{{$p.T "n_items" "n" $n}}{{end}}</td>
+    <td class="num strong">{{etb .Total}}</td>
+    <td>{{template "status" .Status}}{{$p.T (printf "st_%s" .Status)}}</span>{{if and (eq .Status "placed") .AcceptBy}} <span class="muted">· {{clock .AcceptBy}}</span>{{end}}</td>
+    <td class="muted">{{when .PlacedAt}}</td>
+    <td class="act">{{template "nextStep" (dict "O" . "P" $p "Return" $ret)}}</td>
+  </tr>{{end}}</tbody>
+</table></div>
+{{end}}

@@ -42,6 +42,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"superapp/backend/internal/bizweb"
 	"superapp/backend/internal/commerce"
 	"superapp/backend/internal/httpapi"
 	"superapp/backend/internal/identity"
@@ -202,6 +203,7 @@ func run(log *slog.Logger) error {
 		Handler: (&httpapi.Server{
 			Pool: pool, Ledger: l, Payments: svc, Identity: ids, Auth: ids, Log: log, Notify: notifier, Payouts: pay,
 			Merchants: &merchants.Service{Pool: pool}, KYB: docs, Commerce: shops,
+			Web:      &bizweb.Store{Pool: pool, PIN: &platform.PINVerifier{Pool: pool}},
 			Webhooks: webhooks, Sandbox: true, ClientIPHeader: os.Getenv("CLIENT_IP_HEADER"),
 		}).Routes(),
 		ReadHeaderTimeout: 5 * time.Second,

@@ -1,0 +1,20 @@
+{{define "title"}}{{if .Data.ID}}{{.T "edit_product"}}{{else}}{{.T "add_product"}}{{end}}{{end}}
+{{define "content"}}
+{{$d := .Data}}
+<header class="head"><div><a href="/business/products">{{.T "back_products"}}</a><h1>{{if $d.ID}}{{.T "edit_product"}}{{else}}{{.T "add_product"}}{{end}}</h1></div></header>
+<section class="card narrow">
+{{if .S.Manages}}
+<form method="post" action="/business/products{{if $d.ID}}/{{$d.ID}}{{end}}" class="form">
+  <input type="hidden" name="csrf" value="{{.S.CSRF}}">
+  <label for="title">{{.T "f_name"}}</label><input id="title" name="title" value="{{$d.Title}}" maxlength="80" required>
+  <label for="price">{{.T "f_price"}}</label><input id="price" name="price" value="{{$d.Price}}" inputmode="decimal" required>
+  <label for="category">{{.T "f_shelf"}}</label><input id="category" name="category" value="{{$d.Category}}" maxlength="40" placeholder="{{.T "f_shelf_hint"}}">
+  <label for="description">{{.T "f_description"}}</label><textarea id="description" name="description" maxlength="500" rows="3">{{$d.Description}}</textarea>
+  <label for="stock">{{.T "f_stock"}}</label><input id="stock" name="stock" value="{{$d.Stock}}" inputmode="numeric" aria-describedby="stock-help"><p id="stock-help" class="muted">{{.T "f_stock_help"}}</p>
+  <label class="check"><input type="checkbox" name="hidden" value="1" {{if $d.Hidden}}checked{{end}}> {{.T "pr_hidden"}}</label>
+  <div class="actions"><button class="btn">{{.T "save"}}</button>
+  {{if $d.ID}}<button class="btn danger soft" name="archive" value="1" formnovalidate>{{.T "remove_product"}}</button>{{end}}</div>
+</form>
+{{else}}<p class="muted">{{.T "manage_only"}}</p>{{end}}
+</section>
+{{end}}

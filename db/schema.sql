@@ -427,6 +427,40 @@ CREATE TABLE merchant.members (
     PRIMARY KEY (merchant_id, user_id)
 );
 
+-- Signing in to the web business console. The browser shows a one-time code; a member of the shop types
+-- it into the app and approves it with their PIN, which binds the browser to that person and that shop.
+-- Only hashes of the code and of the browser's secret are kept.
+CREATE TABLE merchant.web_logins (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    secret_hash     TEXT NOT NULL UNIQUE,       -- sha256 of the secret in the browser's sign-in cookie
+    code_hash       TEXT NOT NULL UNIQUE,       -- sha256 of the code shown in the browser
+    ip              INET,
+    user_agent      TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at      TIMESTAMPTZ NOT NULL,
+    approved_by     UUID REFERENCES identity.users(id),
+    merchant_id     UUID REFERENCES merchant.merchants(id),
+    approved_at     TIMESTAMPTZ,
+    used_at         TIMESTAMPTZ,                -- the browser picked up its session
+    CHECK ((approved_by IS NULL) = (approved_at IS NULL) AND (approved_by IS NULL) = (merchant_id IS NULL))
+);
+CREATE INDEX ON merchant.web_logins (expires_at);
+
+CREATE TABLE merchant.web_sessions (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    token_hash      TEXT NOT NULL UNIQUE,       -- sha256 of the session cookie
+    user_id         UUID NOT NULL REFERENCES identity.users(id),
+    merchant_id     UUID NOT NULL REFERENCES merchant.merchants(id),
+    csrf_token      TEXT NOT NULL,
+    ip              INET,
+    user_agent      TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at      TIMESTAMPTZ NOT NULL,
+    revoked_at      TIMESTAMPTZ
+);
+CREATE INDEX ON merchant.web_sessions (user_id, merchant_id);
+
 -- KYB documents. The files live encrypted (AES-256-GCM, by the application) in object storage under
 -- object_key; this table holds what staff need to find, check and decide them. No personal data in keys.
 CREATE TABLE merchant.documents (

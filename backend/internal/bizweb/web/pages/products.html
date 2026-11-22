@@ -1,0 +1,20 @@
+{{define "title"}}{{.T "products_title"}}{{end}}
+{{define "content"}}
+<header class="head"><h1>{{.T "products_title"}}</h1>{{if .S.Manages}}<a class="btn" href="/business/products/new">{{.T "add_product"}}</a>{{end}}</header>
+<section class="card">
+{{if .Data.Products}}
+<div class="scroll"><table>
+  <thead><tr><th>{{.T "col_product"}}</th><th>{{.T "col_shelf"}}</th><th class="num">{{.T "col_price"}}</th><th class="num">{{.T "col_stock"}}</th><th>{{.T "col_status"}}</th></tr></thead>
+  <tbody>{{range .Data.Products}}{{if ne .Status "archived"}}
+  <tr>
+    <td>{{if $.S.Manages}}<a href="/business/products/{{.ID}}" class="strong">{{.Title}}</a>{{else}}<span class="strong">{{.Title}}</span>{{end}}</td>
+    <td class="muted">{{.Category}}</td>
+    <td class="num">{{etb .Price}}</td>
+    <td class="num">{{if eq (stock .) ""}}<span class="muted">{{$.T "not_counted"}}</span>{{else if eq (stock .) "0"}}<span class="pill bad">{{$.T "sold_out"}}</span>{{else if low .}}<span class="pill warn">{{stock .}}</span>{{else}}{{stock .}}{{end}}</td>
+    <td>{{template "status" .Status}}{{$.T (printf "pr_%s" .Status)}}</span></td>
+  </tr>{{end}}{{end}}</tbody>
+</table></div>
+{{else}}<p class="muted">{{.T "products_none"}}</p>{{end}}
+{{if not .S.Manages}}<p class="muted">{{.T "manage_only"}}</p>{{end}}
+</section>
+{{end}}

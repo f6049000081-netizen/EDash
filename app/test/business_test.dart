@@ -31,6 +31,9 @@ Map<String, dynamic> shop(String role, {String status = 'active'}) => {
     };
 
 Future<List<String>> pumpShop(WidgetTester tester, Map<String, dynamic> merchant, {bool cashier = false}) async {
+  tester.view.physicalSize = const Size(2000, 4000); // 800 × 1600: the whole shop screen
+  tester.view.devicePixelRatio = 2.5;
+  addTearDown(tester.view.reset);
   final seen = <String>[];
   final state = AppState(
       GebeyaApi(Api(

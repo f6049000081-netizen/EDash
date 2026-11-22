@@ -1,0 +1,72 @@
+{{define "title"}}{{.T "order_title" "number" .Data.Number}}{{end}}
+{{define "content"}}
+{{$o := .Data}}
+<header class="head">
+  <div><a href="/business/orders">{{.T "back_orders"}}</a>
+    <h1>{{.T "order_title" "number" $o.Number}} {{template "status" $o.Status}}{{.T (printf "st_%s" $o.Status)}}</span></h1>
+    <p class="muted">{{.T $o.Channel}} · {{when $o.PlacedAt}}</p>
+  </div>
+</header>
+{{if and (eq $o.Status "placed") $o.AcceptBy}}<p class="flash warn">{{.T "accept_by" "time" (clock $o.AcceptBy)}}</p>{{end}}
+
+<section class="cols">
+  <div class="stack">
+    <div class="card">
+      <h2>{{.T "items"}}</h2>
+      <div class="scroll"><table>
+        <thead><tr><th>{{.T "col_product"}}</th><th class="num">{{.T "col_qty"}}</th><th class="num">{{.T "col_price"}}</th><th class="num">{{.T "col_total"}}</th></tr></thead>
+        <tbody>{{range $o.Items}}<tr><td>{{.Title}}</td><td class="num">{{.Quantity}}</td><td class="num">{{etb .UnitPrice}}</td><td class="num">{{etb .LineTotal}}</td></tr>{{end}}</tbody>
+      </table></div>
+      <div class="kv"><span>{{.T "subtotal"}}</span><span class="num">{{etb $o.Subtotal}}</span></div>
+      {{if eq $o.Channel "delivery"}}<div class="kv"><span>{{.T "delivery_fee"}}</span><span class="num">{{etb $o.DeliveryFee}}</span></div>{{end}}
+      <div class="kv total"><span>{{.T "total"}}</span><span class="num">{{etb $o.Total}}</span></div>
+    </div>
+
+    {{if and .S.Handles (or (eq $o.Status "placed") (eq $o.Status "accepted") (eq $o.Status "ready") (eq $o.Status "on_the_way"))}}
+      {{if ne $o.Status "placed"}}
+      <div class="card" id="handover">
+        <h2>{{.T "handover_title"}}</h2>
+        <p class="muted">{{.T "handover_help" "amount" (etb $o.Total)}}</p>
+        <form method="post" action="/business/orders/{{$o.ID}}/hand_over" class="line">
+          <input type="hidden" name="csrf" value="{{.S.CSRF}}">
+          <label for="code">{{.T "handover_code"}}</label>
+          <input id="code" name="code" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="off" required class="codein">
+          <button class="btn">{{.T "hand_over"}}</button>
+        </form>
+      </div>
+      {{end}}
+      <div class="card">
+        <h2>{{if eq $o.Status "placed"}}{{.T "cancel_title_new"}}{{else}}{{.T "cancel_title"}}{{end}}</h2>
+        <p class="muted">{{.T "cancel_help" "amount" (etb $o.Total)}}</p>
+        <form method="post" action="/business/orders/{{$o.ID}}/cancel">
+          <input type="hidden" name="csrf" value="{{.S.CSRF}}">
+          <label for="note">{{.T "cancel_note"}}</label>
+          <textarea id="note" name="note" maxlength="280" rows="2" required placeholder="{{.T "cancel_hint"}}"></textarea>
+          <button class="btn danger">{{if eq $o.Status "placed"}}{{.T "decline"}}{{else}}{{.T "cancel_order"}}{{end}}</button>
+        </form>
+      </div>
+    {{else if not .S.Handles}}<p class="muted">{{.T "view_only"}}</p>{{end}}
+  </div>
+
+  <div class="stack">
+    {{if and .S.Handles (or (eq $o.Status "placed") (eq $o.Status "accepted") (and (eq $o.Status "ready") (eq $o.Channel "delivery")))}}
+    <div class="card tint"><h2>{{.T "next_step"}}</h2>{{template "nextStep" (dict "O" $o "P" . "Return" "order")}}</div>
+    {{end}}
+    <div class="card">
+      <h2>{{.T "customer"}}</h2>
+      <p>{{$o.CustomerName}}<br><span class="muted">{{$o.CustomerPhone}}</span></p>
+      {{if eq $o.Channel "delivery"}}<p class="label">{{.T "address"}}</p><p>{{$o.DeliveryAddress}}</p>{{end}}
+      {{if $o.Note}}<p class="label">{{.T "note"}}</p><p class="quote">{{$o.Note}}</p>{{end}}
+    </div>
+    <div class="card">
+      <h2>{{.T "timeline"}}</h2>
+      {{if $o.PlacedAt}}<div class="kv"><span>{{.T "t_placed"}}</span><span>{{when $o.PlacedAt}}</span></div>{{end}}
+      {{if $o.AcceptedAt}}<div class="kv"><span>{{.T "t_accepted"}}</span><span>{{when $o.AcceptedAt}}</span></div>{{end}}
+      {{if $o.ReadyAt}}<div class="kv"><span>{{.T "t_ready"}}</span><span>{{when $o.ReadyAt}}</span></div>{{end}}
+      {{if $o.CompletedAt}}<div class="kv"><span>{{.T "t_completed"}}</span><span>{{when $o.CompletedAt}}</span></div>{{end}}
+      {{if $o.CancelledAt}}<div class="kv"><span>{{.T "t_cancelled"}}</span><span>{{when $o.CancelledAt}}</span></div>
+        <p class="label">{{.T "cancel_reason"}}</p><p>{{.T (printf "r_%s" $o.CancelReason)}}{{if $o.CancelNote}} <span class="quote">“{{$o.CancelNote}}”</span>{{end}}</p>{{end}}
+    </div>
+  </div>
+</section>
+{{end}}

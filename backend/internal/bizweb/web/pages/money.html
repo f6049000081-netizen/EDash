@@ -1,0 +1,30 @@
+{{define "title"}}{{.T "money_title"}}{{end}}
+{{define "content"}}
+{{$d := .Data}}
+<header class="head"><h1>{{.T "money_title"}}</h1></header>
+<section class="cols">
+  <div class="card">
+    <h2>{{.T "payments_received"}}</h2>
+    {{if $d.Payments}}
+    <div class="scroll"><table>
+      <thead><tr><th>{{.T "col_when"}}</th><th>{{.T "col_from"}}</th><th class="num">{{.T "col_amount"}}</th></tr></thead>
+      <tbody>{{range $d.Payments}}<tr><td class="muted">{{when .CompletedAt}}</td><td>{{.PayerName}}</td><td class="num strong">{{etb .Amount}}</td></tr>{{end}}</tbody>
+    </table></div>
+    {{else}}<p class="muted">{{.T "payments_none"}}</p>{{end}}
+  </div>
+  <div class="card">
+    <h2>{{.T "payouts"}}</h2>
+    {{if .S.SeesMoney}}
+      {{with $d.Summary}}<p class="muted">{{$.T "pending_payout" "amount" (etb .Pending)}}</p>{{end}}
+      {{if $d.Payouts}}
+      <div class="scroll"><table>
+        <thead><tr><th>{{.T "col_period"}}</th><th class="num">{{.T "col_net"}}</th><th>{{.T "col_to"}}</th><th>{{.T "col_status"}}</th></tr></thead>
+        <tbody>{{range $d.Payouts}}<tr><td class="muted">{{day .PeriodEnd}}</td><td class="num strong">{{etb .Net}}</td><td>{{.DestinationName}}</td>
+          <td>{{template "status" (printf "%s" .Status)}}{{$.T (printf "po_%s" .Status)}}</span>{{if .HoldReason}}<br><span class="muted">{{$.T (printf "hold_%s" .HoldReason)}}</span>{{end}}</td></tr>{{end}}</tbody>
+      </table></div>
+      {{else}}<p class="muted">{{.T "payouts_none"}}</p>{{end}}
+      <p class="muted">{{.T "payout_account_app"}}</p>
+    {{else}}<p class="muted">{{.T "payouts_hidden"}}</p>{{end}}
+  </div>
+</section>
+{{end}}

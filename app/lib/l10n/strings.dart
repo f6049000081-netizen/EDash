@@ -27,6 +27,19 @@ class S {
 
   static const _strings = <String, Map<String, String>>{
     'en': {
+      'web_title': 'Sign in on a computer',
+      'web_tile_sub': 'Orders and products on a bigger screen',
+      'web_steps':
+          'On the computer, open the Gebeya One business console. It shows a code: type it here to sign that computer in to {shop}.',
+      'web_code': 'Code on the computer',
+      'web_safety':
+          'Only type a code you can see on a computer in front of you. Gebeya One staff will never ask you for one.',
+      'web_signed_in_list': 'Computers signed in',
+      'web_none': 'No computers are signed in.',
+      'web_sign_out': 'Sign out',
+      'web_approve_title': 'Sign in to {shop} on this computer?',
+      'web_approve_check': 'Check that this is your computer and browser. Approve with your PIN.',
+      'web_signed_in': '{browser} is signed in. It signs out after 2 hours without use.',
       'shops': 'Shops',
       'shops_none': 'No shops are taking orders in the app yet. Shops that sign up appear here.',
       'my_orders': 'My orders',
@@ -382,6 +395,17 @@ class S {
       'retry': 'Retry',
     },
     'am': {
+      'web_title': 'በኮምፒውተር ይግቡ',
+      'web_tile_sub': 'ትዕዛዞች እና ዕቃዎች በትልቅ ስክሪን',
+      'web_steps': 'በኮምፒውተሩ የገበያ ዋን የንግድ ገጽን ይክፈቱ። ኮድ ያሳያል፤ ኮምፒውተሩን ወደ {shop} ለማስገባት እዚህ ያስገቡት።',
+      'web_code': 'በኮምፒውተሩ ላይ ያለው ኮድ',
+      'web_safety': 'ከፊትዎ ባለ ኮምፒውተር ላይ የሚያዩትን ኮድ ብቻ ያስገቡ። የገበያ ዋን ሠራተኞች በፍጹም አይጠይቁዎትም።',
+      'web_signed_in_list': 'የገቡ ኮምፒውተሮች',
+      'web_none': 'የገባ ኮምፒውተር የለም።',
+      'web_sign_out': 'አስወጣ',
+      'web_approve_title': 'በዚህ ኮምፒውተር ወደ {shop} ይግቡ?',
+      'web_approve_check': 'ኮምፒውተሩ እና አሳሹ የእርስዎ መሆናቸውን ያረጋግጡ። በፒንዎ ያጽድቁ።',
+      'web_signed_in': '{browser} ገብቷል። ለ2 ሰዓት ካልተጠቀሙበት ራሱ ይወጣል።',
       'shops': 'ሱቆች',
       'shops_none': 'እስካሁን በመተግበሪያው ትዕዛዝ የሚቀበል ሱቅ የለም። የሚመዘገቡ ሱቆች እዚህ ይታያሉ።',
       'my_orders': 'ትዕዛዞቼ',

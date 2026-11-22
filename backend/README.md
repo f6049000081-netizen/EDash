@@ -275,6 +275,25 @@ Before going live, check these against the spec and test keys that come with the
   - Orders in the operations console.
   - Accepted orders that never finish: today nothing closes them, so a timeout or a staff action is needed.
 
+## Web business console
+
+`cmd/business` (port 8070) and `internal/bizweb`: a shop's orders, products, storefront, payments and payouts on a computer, following the merchant console design (Home, Orders, Products, Storefront, Payments and payouts). Pages are rendered on the server, have no scripts, and are in English and Amharic (Afaan Oromo and Tigrinya fall back to English). The console follows the person's app language, and they can switch it at the bottom of the menu.
+
+- **Signing in never involves a password, SMS code or PIN in the browser.**
+  - The browser shows a one-time code (8 characters, `ABCD-EFGH`), and checks back by itself every 3 seconds.
+  - A member of the shop types the code in the app (Profile → Business → Sign in on a computer). The app shows which browser is asking (from `POST /v1/web-logins/lookup`), and the person approves with their PIN (`POST /v1/web-logins/approve`, with the usual PIN lockout).
+  - The browser then gets a session for that person and that shop.
+  - Codes work for 5 minutes and once. Only hashes of the code and of the browser's secret are stored, and each network can request at most 20 codes per 10 minutes.
+  - The person gets a notification (`identity.web_signed_in`).
+- **Sessions** (`merchant.web_sessions`): an `__Host-` cookie that is HttpOnly, Secure and SameSite=Strict. Every form also needs a per-session CSRF token and passes a same-origin check. The Content Security Policy allows no scripts.
+  - A session ends after 2 hours without use, after 12 hours at most, on sign-out, or when it's signed out from the app (`GET` and `DELETE /v1/me/web-sessions`).
+  - It also ends at once if the person leaves the shop, is frozen, or the shop isn't active.
+- **Permissions.** What a session can do is read afresh on every request and checked by the same services the app's API uses: owners and managers change products and the storefront, cashiers handle orders, accountants view. Payouts are shown to owners, managers and accountants. The payout account can still only be changed in the app, by an owner, with their PIN.
+- **Orders** refresh every 20 seconds while the list is open. From the list, accept and the next step are one click. Handover (the customer's 4-digit code) and declining or cancelling (with a note to the customer) are on the order page.
+- **Run it locally:** `./run-business-dev.sh`, then open http://localhost:8070/business/ and approve the code from the app (the API server from `run-dev.sh` must be running). Production needs `BUSINESS_BASE_URL` on https.
+- **Checked live** on 2026-11-22: a code shown in the browser, looked up and approved in the app, then an order accepted, marked ready, a wrong code refused and handed over from the console, the console in Amharic from the owner's app language, the sign-in notification, and the browser signed out from the app.
+- **Not built yet:** promotions, customers and reviews, insights, team and roles, and branches from the design. Validation messages from the services are still in English. Before production the console should run behind the same edge protection as the API.
+
 ## What's real and what's sandbox
 
 - **Real:**

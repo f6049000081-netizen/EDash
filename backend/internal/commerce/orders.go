@@ -343,6 +343,14 @@ func (s *Service) ShopOrders(ctx context.Context, user, merchant uuid.UUID, acti
 	return s.scanOrders(ctx, rows, true)
 }
 
+// ShopOrder is one of the shop's orders as its staff see it.
+func (s *Service) ShopOrder(ctx context.Context, user, merchant, id uuid.UUID) (*Order, error) {
+	if err := s.requireRole(ctx, s.Pool, user, merchant, viewRoles); err != nil {
+		return nil, err
+	}
+	return s.shopOrder(ctx, merchant, id)
+}
+
 func (s *Service) shopOrder(ctx context.Context, merchant, id uuid.UUID) (*Order, error) {
 	rows, err := s.Pool.Query(ctx, `SELECT `+orderCols+` `+orderFrom+` WHERE o.id = $1 AND o.merchant_id = $2 AND o.placed_at IS NOT NULL`,
 		id, merchant)
@@ -611,6 +619,9 @@ const MaxHandoverTries = 5
 
 var ErrWrongCode = errors.New("commerce: wrong handover code")
 
+// ErrHandoverLocked: too many wrong codes; the customer confirms in their app instead.
+var ErrHandoverLocked = &ConflictError{"Too many wrong codes. Ask the customer to tap \"I have my order\" in their app."}
+
 // HandOver completes an order with the code the customer shows. The shop is paid at once.
 func (s *Service) HandOver(ctx context.Context, user, merchant, id uuid.UUID, code string) (*Order, error) {
 	code = strings.TrimSpace(code)
@@ -631,7 +642,7 @@ func (s *Service) HandOver(ctx context.Context, user, merchant, id uuid.UUID, co
 			return &ConflictError{"This order is " + strings.ReplaceAll(o.status, "_", " ") + " and can't be handed over."}
 		}
 		if o.tries >= MaxHandoverTries {
-			return &ConflictError{"Too many wrong codes. Ask the customer to tap \"I have my order\" in their app."}
+			return ErrHandoverLocked
 		}
 		if !codesEqual(code, o.code) {
 			wrong = true

@@ -713,6 +713,87 @@ paths:
                 properties:
                   items: { type: array, items: { $ref: '#/components/schemas/Merchant' } }
 
+  /v1/web-logins/lookup:
+    post:
+      tags: [Merchants]
+      summary: Which browser is showing a sign-in code for the web business console
+      description: "The app calls this before asking for the PIN, so the person can check it's their own computer."
+      operationId: lookupWebLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code: { type: string, description: "The 8 characters shown in the browser; case, spaces and the dash don't matter.", example: ABCD-EFGH }
+      responses:
+        '200':
+          description: The browser waiting for approval
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebLogin' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/web-logins/approve:
+    post:
+      tags: [Merchants]
+      summary: Sign a browser in to the web business console for one shop
+      description: |
+        Any member of an approved shop can approve, with their PIN; the console then follows their role. The code
+        works for 5 minutes and once. The person is notified (identity.web_signed_in). The browser's session
+        ends after 2 hours without use, 12 hours at most, or as soon as the person leaves the shop.
+      operationId: approveWebLogin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, merchant_id, pin]
+              properties:
+                code: { type: string }
+                merchant_id: { type: string, format: uuid }
+                pin: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200':
+          description: Approved; the browser moves on by itself
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WebLogin' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/me/web-sessions:
+    get:
+      tags: [Merchants]
+      summary: The person's browsers signed in to the web business console
+      operationId: listWebSessions
+      responses:
+        '200':
+          description: Browsers, most recently used first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/WebSession' } }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /v1/me/web-sessions/{id}:
+    delete:
+      tags: [Merchants]
+      summary: Sign one of the person's browsers out
+      operationId: deleteWebSession
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '204': { description: Signed out }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
   /v1/merchants/{id}:
     get:
       tags: [Merchants]
@@ -1393,6 +1474,25 @@ components:
           schema: { $ref: '#/components/schemas/Problem' }
 
   schemas:
+    WebLogin:
+      type: object
+      properties:
+        browser: { type: string, example: Chrome on Windows }
+        ip: { type: string, example: 196.188.10.4 }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
+
+    WebSession:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        merchant_id: { type: string, format: uuid }
+        shop_name: { type: string }
+        browser: { type: string }
+        ip: { type: string }
+        created_at: { type: string, format: date-time }
+        last_seen_at: { type: string, format: date-time }
+
     Currency:
       type: string
       enum: [ETB, USD, EUR, GBP, KES, AED, SAR]

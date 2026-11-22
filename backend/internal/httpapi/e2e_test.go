@@ -25,6 +25,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"superapp/backend/internal/bizweb"
 	"superapp/backend/internal/commerce"
 	"superapp/backend/internal/httpapi"
 	"superapp/backend/internal/identity"
@@ -113,10 +114,11 @@ func TestEndToEndSignInAndPay(t *testing.T) {
 	notifier := &notify.Service{Pool: pool, Log: log}
 	sealer, _ := kyb.ParseKeys("k1:" + base64.StdEncoding.EncodeToString(key))
 	docs := &kyb.Service{Pool: pool, Store: kybtest.NewMemStore(), Sealer: sealer}
+	web := &bizweb.Store{Pool: pool, PIN: &platform.PINVerifier{Pool: pool}}
 	srv := httptest.NewServer((&httpapi.Server{
 		Pool: pool, Ledger: l, Payments: pay, Identity: ids, Auth: ids, Log: log, Sandbox: true, Notify: notifier,
 		Payouts:   payouts.NewService(pool, l, &platform.PINVerifier{Pool: pool}),
-		Merchants: &merchants.Service{Pool: pool}, KYB: docs, Commerce: commerce.New(pool, pay),
+		Merchants: &merchants.Service{Pool: pool}, KYB: docs, Commerce: commerce.New(pool, pay), Web: web,
 	}).Routes())
 	defer srv.Close()
 
@@ -429,6 +431,44 @@ func TestEndToEndSignInAndPay(t *testing.T) {
 	}
 	if st, p := carol.do("GET", "/v1/activity?filter=orders", nil, false); st != http.StatusOK || len(p["items"].([]any)) != 1 {
 		t.Errorf("order in activity: %d %v", st, p)
+	}
+
+	// The web business console: a computer shows a code; Bob checks which browser it is and approves it
+	// with his PIN, for the kiosk. Carol isn't a member, so she can't.
+	login, err := web.StartLogin(context.Background(), "192.0.2.7", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st, p := bob.do("POST", "/v1/web-logins/lookup", map[string]any{"code": "ZZZZ-ZZZZ"}, false); st != http.StatusNotFound || p["code"] != "code_not_found" {
+		t.Errorf("unknown code: %d %v", st, p)
+	}
+	if st, p := bob.do("POST", "/v1/web-logins/lookup", map[string]any{"code": bizweb.FormatCode(login.Code)}, false); st != http.StatusOK || p["browser"] != "Chrome on Windows" || p["ip"] != "192.0.2.7" {
+		t.Errorf("lookup: %d %v", st, p)
+	}
+	approve := map[string]any{"code": login.Code, "merchant_id": kiosk, "pin": "582047"}
+	if st, p := carol.do("POST", "/v1/web-logins/approve", map[string]any{"code": login.Code, "merchant_id": kiosk, "pin": "582047"}, false); st != http.StatusForbidden {
+		t.Errorf("a customer approved a shop sign-in: %d %v", st, p)
+	}
+	if st, p := bob.do("POST", "/v1/web-logins/approve", map[string]any{"code": login.Code, "merchant_id": kiosk, "pin": "000000"}, false); st != http.StatusForbidden || p["code"] != "invalid_pin" {
+		t.Errorf("wrong PIN: %d %v", st, p)
+	}
+	if st, p := bob.do("POST", "/v1/web-logins/approve", approve, false); st != http.StatusOK || p["browser"] != "Chrome on Windows" {
+		t.Fatalf("approve: %d %v", st, p)
+	}
+	if state, _, err := web.PollLogin(context.Background(), login.Secret, login.Code, "192.0.2.7", "test"); err != nil || state != bizweb.LoginApproved {
+		t.Fatalf("browser picks up its session: %v %v", state, err)
+	}
+	st, sessions := bob.do("GET", "/v1/me/web-sessions", nil, false)
+	browsers, _ := sessions["items"].([]any)
+	if st != http.StatusOK || len(browsers) != 1 {
+		t.Fatalf("web sessions: %d %v", st, sessions)
+	}
+	sid := browsers[0].(map[string]any)["id"].(string)
+	if st, _ := carol.do("DELETE", "/v1/me/web-sessions/"+sid, nil, false); st != http.StatusNotFound {
+		t.Errorf("someone else signed out bob's browser: %d", st)
+	}
+	if st, _ := bob.do("DELETE", "/v1/me/web-sessions/"+sid, nil, false); st != http.StatusNoContent {
+		t.Errorf("sign out browser: %d", st)
 	}
 
 	// Refresh and logout over HTTP.

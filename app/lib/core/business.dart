@@ -169,7 +169,44 @@ String imageType(List<int> b) =>
 /// Category codes a business can apply under (the server checks the same list).
 const merchantCategories = ['5411', '5812', '5814', '5912', '5651', '5732', '5251', '7230', '4121', '8299', '5999'];
 
+/// A browser asking to sign in to the web business console, as the app shows it before approval.
+class WebLogin {
+  WebLogin(this.browser, this.ip, this.createdAt);
+  final String browser;
+  final String ip;
+  final DateTime createdAt;
+
+  factory WebLogin.fromJson(Map<String, dynamic> j) =>
+      WebLogin(j['browser'] as String, j['ip'] as String? ?? '', DateTime.parse(j['created_at'] as String).toLocal());
+}
+
+/// A browser signed in to the web business console.
+class WebSession {
+  WebSession(this.id, this.shopName, this.browser, this.ip, this.lastSeenAt);
+  final String id;
+  final String shopName;
+  final String browser;
+  final String ip;
+  final DateTime lastSeenAt;
+
+  factory WebSession.fromJson(Map<String, dynamic> j) => WebSession(j['id'] as String, j['shop_name'] as String,
+      j['browser'] as String, j['ip'] as String? ?? '', DateTime.parse(j['last_seen_at'] as String).toLocal());
+}
+
 extension BusinessApi on GebeyaApi {
+  Future<WebLogin> lookupWebLogin(String code) async =>
+      WebLogin.fromJson(await api.post('/v1/web-logins/lookup', {'code': code}));
+
+  Future<WebLogin> approveWebLogin(String merchantId, String code, String pin) async => WebLogin.fromJson(
+      await api.post('/v1/web-logins/approve', {'code': code, 'merchant_id': merchantId, 'pin': pin}));
+
+  Future<List<WebSession>> webSessions() async {
+    final j = await api.get('/v1/me/web-sessions');
+    return [for (final x in j['items'] as List) WebSession.fromJson(x as Map<String, dynamic>)];
+  }
+
+  Future<void> signOutWebSession(String id) async => api.delete('/v1/me/web-sessions/$id');
+
   Future<List<Merchant>> myMerchants() async {
     final j = await api.get('/v1/me/merchants');
     return [for (final m in j['items'] as List) Merchant.fromJson(m as Map<String, dynamic>)];

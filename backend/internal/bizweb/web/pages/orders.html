@@ -1,0 +1,13 @@
+{{define "title"}}{{.T "nav_orders"}}{{end}}
+{{define "content"}}
+<header class="head"><h1>{{.T "nav_orders"}}</h1>
+  <nav class="tabs" aria-label="{{.T "nav_orders"}}">
+    <a href="/business/orders" {{if .Data.Live}}aria-current="page"{{end}}>{{.T "live"}}</a>
+    <a href="/business/orders?state=done" {{if not .Data.Live}}aria-current="page"{{end}}>{{.T "done"}}</a>
+  </nav>
+</header>
+<section class="card">
+  {{if .Data.Orders}}{{template "orderTable" (dict "Orders" .Data.Orders "P" . "Return" "list")}}
+  {{else}}<p class="muted">{{if .Data.Live}}{{.T "orders_live_none"}}{{else}}{{.T "orders_done_none"}}{{end}}</p>{{end}}
+</section>
+{{end}}
