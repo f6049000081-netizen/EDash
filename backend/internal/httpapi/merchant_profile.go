@@ -183,7 +183,7 @@ func (s *Server) failMerchants(w http.ResponseWriter, err error) {
 	case errors.As(err, &v):
 		platform.WriteProblem(w, platform.NewProblem(http.StatusUnprocessableEntity, "validation_failed", "Check the details", v.Msg))
 	case errors.As(err, &c):
-		platform.WriteProblem(w, platform.NewProblem(http.StatusConflict, "conflict", "Can't apply now", c.Msg))
+		platform.WriteProblem(w, platform.NewProblem(http.StatusConflict, "conflict", "Can't do that now", c.Msg))
 	case errors.Is(err, merchants.ErrNotFound):
 		platform.WriteProblem(w, platform.NewProblem(http.StatusNotFound, "not_found", "Not found", ""))
 	case errors.Is(err, merchants.ErrNotActive):

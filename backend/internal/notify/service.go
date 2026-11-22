@@ -30,6 +30,7 @@ var Topics = []string{
 	"merchant.rejected", "merchant.suspended", "merchant.reinstated", "merchant.document_rejected",
 	"order.placed", "order.accepted", "order.ready", "order.on_the_way", "order.delivered", "order.cancelled",
 	"order.overdue", "order.review",
+	"team.invited", "team.joined", "team.declined", "team.role_changed", "team.removed", "team.left",
 }
 
 // Push is what a device shows. Data lets the app open the right screen.
@@ -89,6 +90,13 @@ func (s *Service) Handle(ctx context.Context, m outbox.Message) error {
 			return nil
 		}
 		return s.merchant(ctx, m, ev)
+	case strings.HasPrefix(m.Topic, "team."):
+		var ev teamEvent
+		if err := json.Unmarshal(m.Payload, &ev); err != nil {
+			s.warn("unreadable team event", m, err)
+			return nil
+		}
+		return s.team(ctx, m, ev)
 	case strings.HasPrefix(m.Topic, "order."):
 		var ev orderEvent
 		if err := json.Unmarshal(m.Payload, &ev); err != nil {

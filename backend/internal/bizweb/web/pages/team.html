@@ -1,0 +1,70 @@
+{{define "title"}}{{.T "team_title"}}{{end}}
+{{define "content"}}
+<header class="head"><div><h1>{{.T "team_title"}}</h1><p class="muted">{{.T "team_help" "shop" .S.Shop}}</p></div></header>
+{{with .Data}}{{$d := .}}{{$p := $}}
+<section class="card">
+  <h2>{{$p.T "team_members"}}</h2>
+  <div class="scroll"><table>
+    <thead><tr><th>{{$p.T "col_name"}}</th><th>{{$p.T "col_phone"}}</th><th>{{$p.T "col_role"}}</th><th>{{$p.T "col_since"}}</th>{{if $d.Owner}}<th><span class="sr">{{$p.T "col_change"}}</span></th>{{end}}</tr></thead>
+    <tbody>{{range $d.Team.Members}}
+    <tr>
+      <td class="strong">{{if .Name}}{{.Name}}{{else}}—{{end}}{{if eq .UserID $p.S.UserID}} <span class="muted">({{$p.T "you"}})</span>{{end}}</td>
+      <td class="muted num">{{.Phone}}</td>
+      <td>{{$p.T (printf "role_%s" .Role)}}</td>
+      <td class="muted">{{day .Since}}</td>
+      {{if $d.Owner}}<td class="act">{{if and (ne .Role "owner") (ne .UserID $p.S.UserID)}}
+        <form method="post" action="/business/team/members/{{.UserID}}/role" class="inline">
+          <input type="hidden" name="csrf" value="{{$p.S.CSRF}}">
+          <label class="sr" for="role-{{.UserID}}">{{$p.T "col_role"}}</label>
+          <select id="role-{{.UserID}}" name="role">{{$cur := .Role}}{{range $d.Roles}}<option value="{{.}}" {{if eq . $cur}}selected{{end}}>{{$p.T (printf "role_%s" .)}}</option>{{end}}</select>
+          <button class="btn soft">{{$p.T "team_change_role"}}</button>
+        </form>
+        <form method="post" action="/business/team/members/{{.UserID}}/remove" class="inline">
+          <input type="hidden" name="csrf" value="{{$p.S.CSRF}}">
+          <button class="btn soft danger">{{$p.T "team_remove"}}</button>
+        </form>
+      {{end}}</td>{{end}}
+    </tr>{{end}}</tbody>
+  </table></div>
+  <p class="muted">{{$p.T "team_owners_note"}}</p>
+</section>
+{{if $d.Owner}}
+<section class="cols">
+  <div class="card">
+    <h2>{{$p.T "team_invite"}}</h2>
+    <form method="post" action="/business/team/invite" class="form">
+      <input type="hidden" name="csrf" value="{{$p.S.CSRF}}">
+      <label for="phone">{{$p.T "team_phone"}}</label>
+      <input id="phone" name="phone" type="tel" value="{{$d.Phone}}" placeholder="+251 91 123 4567" autocomplete="off" required>
+      <label for="role">{{$p.T "col_role"}}</label>
+      <select id="role" name="role">{{range $d.Roles}}<option value="{{.}}" {{if eq . $d.Role}}selected{{end}}>{{$p.T (printf "role_%s" .)}}</option>{{end}}</select>
+      <p class="muted">{{$p.T "team_invite_help"}}</p>
+      <div class="actions"><button class="btn">{{$p.T "team_send_invite"}}</button></div>
+    </form>
+  </div>
+  <div class="card">
+    <h2>{{$p.T "team_roles"}}</h2>
+    {{range $d.Roles}}<div class="kv"><span class="strong">{{$p.T (printf "role_%s" .)}}</span><span class="muted">{{$p.T (printf "role_%s_can" .)}}</span></div>{{end}}
+  </div>
+</section>
+<section class="card">
+  <h2>{{$p.T "team_open_invites"}}</h2>
+  {{if $d.Team.Invitations}}
+  <div class="scroll"><table>
+    <thead><tr><th>{{$p.T "col_phone"}}</th><th>{{$p.T "col_role"}}</th><th>{{$p.T "team_expires"}}</th><th><span class="sr">{{$p.T "col_change"}}</span></th></tr></thead>
+    <tbody>{{range $d.Team.Invitations}}
+    <tr>
+      <td class="num">{{.Phone}}</td>
+      <td>{{$p.T (printf "role_%s" .Role)}}</td>
+      <td class="muted">{{day .ExpiresAt}}</td>
+      <td class="act"><form method="post" action="/business/team/invitations/{{.ID}}/cancel" class="inline">
+        <input type="hidden" name="csrf" value="{{$p.S.CSRF}}">
+        <button class="btn soft">{{$p.T "team_cancel_invite"}}</button>
+      </form></td>
+    </tr>{{end}}</tbody>
+  </table></div>
+  {{else}}<p class="muted">{{$p.T "team_no_invites"}}</p>{{end}}
+</section>
+{{end}}
+{{end}}
+{{end}}

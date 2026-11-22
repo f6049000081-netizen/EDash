@@ -83,6 +83,21 @@ var texts = map[string]map[string]string{
 		"session_revoked.body":                     "A sign-in on one of your devices looked unsafe, so we ended it. Sign in again on that device.",
 		"biometric_enrolled.title":                 "Fingerprint or face confirmation is on",
 		"biometric_enrolled.body":                  "Payments can now be confirmed with a fingerprint or face check on one of your devices. If this wasn't you, reset your PIN now.",
+		"role.manager":                             "manager",
+		"role.cashier":                             "cashier",
+		"role.accountant":                          "accountant",
+		"team_invited.title":                       "Join {shop}'s team?",
+		"team_invited.body":                        "{name} invited you to join as {role}. Open Profile → Business to accept or decline. The invitation lasts 7 days.",
+		"team_joined.title":                        "{name} joined {shop}",
+		"team_joined.body":                         "They accepted your invitation and joined as {role}.",
+		"team_declined.title":                      "Invitation declined",
+		"team_declined.body":                       "{name} declined the invitation to join {shop} as {role}.",
+		"team_role_changed.title":                  "Your role at {shop} changed",
+		"team_role_changed.body":                   "Your role is now {role}. What you can see and do in Business has changed with it.",
+		"team_removed.title":                       "You're no longer on {shop}'s team",
+		"team_removed.body":                        "An owner removed you. Your computer sign-ins for the shop have ended.",
+		"team_left.title":                          "{name} left {shop}",
+		"team_left.body":                           "They were on the team as {role}. Their computer sign-ins for the shop have ended.",
 		"web_signed_in.title":                      "Signed in on a computer",
 		"web_signed_in.body":                       "{shop}'s business console was opened in {browser}. If this wasn't you, sign it out in Profile → Business and reset your PIN.",
 		"merchant_applied.title":                   "Application received",
@@ -181,6 +196,21 @@ var texts = map[string]map[string]string{
 		"session_revoked.body":                     "በአንዱ መሣሪያዎ ላይ ያለው መግቢያ አስተማማኝ ስላልመሰለን አቋርጠነዋል። በዚያ መሣሪያ ላይ እንደገና ይግቡ።",
 		"biometric_enrolled.title":                 "በጣት አሻራ ወይም በፊት ማረጋገጥ ተከፍቷል",
 		"biometric_enrolled.body":                  "ከመሣሪያዎችዎ በአንዱ ላይ ክፍያዎችን በጣት አሻራ ወይም በፊት ማረጋገጥ ይቻላል። ይህን ያደረጉት እርስዎ ካልሆኑ አሁኑኑ ፒንዎን ይቀይሩ።",
+		"role.manager":                             "ሥራ አስኪያጅ",
+		"role.cashier":                             "ገንዘብ ተቀባይ",
+		"role.accountant":                          "ሂሳብ ሠራተኛ",
+		"team_invited.title":                       "የ{shop} ቡድንን ይቀላቀላሉ?",
+		"team_invited.body":                        "{name} በ{role}ነት ጋብዘዎታል። ለመቀበል ወይም ላለመቀበል መገለጫ → ንግድን ይክፈቱ። ግብዣው ለ7 ቀናት ይቆያል።",
+		"team_joined.title":                        "{name} {shop}ን ተቀላቅለዋል",
+		"team_joined.body":                         "ግብዣዎን ተቀብለው አሁን {role} ናቸው።",
+		"team_declined.title":                      "ግብዣው አልተቀበለም",
+		"team_declined.body":                       "{name} {shop}ን በ{role}ነት የመቀላቀል ግብዣውን አልተቀበሉም።",
+		"team_role_changed.title":                  "በ{shop} ያለዎት ሚና ተቀይሯል",
+		"team_role_changed.body":                   "አሁን {role} ነዎት። በንግድ ውስጥ የሚያዩትና የሚሠሩት አብሮ ተቀይሯል።",
+		"team_removed.title":                       "ከ{shop} ቡድን ተወግደዋል",
+		"team_removed.body":                        "አንድ ባለቤት አስወግደዎታል። ለሱቁ በኮምፒውተር የገቡባቸው ተዘግተዋል።",
+		"team_left.title":                          "{name} {shop}ን ለቀዋል",
+		"team_left.body":                           "{role} ነበሩ። ለሱቁ በኮምፒውተር የገቡባቸው ተዘግተዋል።",
 		"web_signed_in.title":                      "በኮምፒውተር ገብተዋል",
 		"web_signed_in.body":                       "የ{shop} የንግድ ገጽ በ{browser} ተከፍቷል። ይህ እርስዎ ካልሆኑ በመገለጫ → ንግድ ውስጥ ያስወጡት እና ፒንዎን ይቀይሩ።",
 		"merchant_applied.title":                   "ማመልከቻዎ ደርሷል",
@@ -210,6 +240,13 @@ func text(locale, key string, args map[string]string) string {
 		s = texts["en"][key]
 	}
 	for k, v := range args {
+		if k == "role" { // a role is shown in the reader's language: "cashier" → "ገንዘብ ተቀባይ"
+			if r, ok := texts[locale]["role."+v]; ok {
+				v = r
+			} else if r, ok := texts["en"]["role."+v]; ok {
+				v = r
+			}
+		}
 		s = strings.ReplaceAll(s, "{"+k+"}", v)
 	}
 	return s

@@ -104,6 +104,15 @@ QR payments split the amount three ways: debit the payer, credit the merchant se
   - Cashiers don't see the registration details, payouts or the payout account.
   - Only owners change the payout account.
   - Strangers get 404.
+- **Team** (`internal/merchants/team.go`, `merchant.invitations`):
+  - Owners invite people by phone number as manager, cashier or accountant (`POST /v1/merchants/{id}/invitations`). Owners can't be invited: they're part of the business registration and change through support.
+  - An invitation lasts 7 days. It waits for numbers that have no account yet, and the person sees it once they sign up with that number. A new invitation to the same number replaces the open one.
+  - At most 50 members and 20 open invitations per shop. Inviting, accepting and the limits lock the shop row, so two invitations can't push a shop over.
+  - The person answers in the app (`GET /v1/me/invitations`, `POST …/accept` or `…/decline`). Only the person with that number can see or answer an invitation. Answering one that has expired, been cancelled or been answered already returns 410 `invitation_gone`.
+  - Owners and managers see the team (`GET /v1/merchants/{id}/team`) with masked phone numbers. Only owners see the open invitations, change roles (`PUT …/members/{user}`) and remove people (`DELETE …/members/{user}`). Members who aren't owners can leave with their own user ID.
+  - Removing or leaving ends the person's web business console sessions for that shop at once.
+  - Notifications (am/en): the invited person (`team.invited`), the member whose role changed or who was removed (`team.role_changed`, `team.removed`), and the owners when someone joins, declines or leaves (`team.joined`, `team.declined`, `team.left`).
+  - Checked live on 2026-11-22: invited by local number in the app API, accepted (a second accept got 410), a cashier refused the team list, an invitation sent from the console to a number with no account, seen after signing up and declined, a role changed in the console, and the member leaving from the app. Notifications arrived on both sides.
 - **Payers** appear by first name and last initial ("Abebe K.").
 - **"Today"** is the day in Addis Ababa.
 
@@ -308,8 +317,9 @@ Before going live, check these against the spec and test keys that come with the
 - **Permissions.** What a session can do is read afresh on every request and checked by the same services the app's API uses: owners and managers change products and the storefront, cashiers handle orders, accountants view. Payouts are shown to owners, managers and accountants. The payout account can still only be changed in the app, by an owner, with their PIN.
 - **Orders** refresh every 20 seconds while the list is open. From the list, accept and the next step are one click. Handover (the customer's 4-digit code) and declining or cancelling (with a note to the customer) are on the order page.
 - **Run it locally:** `./run-business-dev.sh`, then open http://localhost:8070/business/ and approve the code from the app (the API server from `run-dev.sh` must be running). Production needs `BUSINESS_BASE_URL` on https.
+- **Team** (owners and managers): members with masked numbers and their roles. Owners also invite by phone number, cancel open invitations, change roles and remove people. Cashiers and accountants don't get the page.
 - **Checked live** on 2026-11-22: a code shown in the browser, looked up and approved in the app, then an order accepted, marked ready, a wrong code refused and handed over from the console, the console in Amharic from the owner's app language, the sign-in notification, and the browser signed out from the app.
-- **Not built yet:** promotions, customers and reviews, insights, team and roles, and branches from the design. Validation messages from the services are still in English. Before production the console should run behind the same edge protection as the API.
+- **Not built yet:** promotions, customers and reviews, insights, and branches from the design. Validation messages from the services are still in English. Before production the console should run behind the same edge protection as the API.
 
 ## What's real and what's sandbox
 

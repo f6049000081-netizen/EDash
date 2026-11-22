@@ -492,7 +492,11 @@ func TestEveryPageRendersInEnglishAndAmharic(t *testing.T) {
 			if st, _, loc := b.get("/business/lang?l=" + lang + "&next=/business/orders"); st != http.StatusSeeOther || loc != "/business/orders" {
 				t.Fatalf("language switch: %d %q", st, loc)
 			}
-			for _, p := range pages {
+			all := pages
+			if who == owner {
+				all = append(all[:len(all):len(all)], "/business/team") // cashiers don't see the team
+			}
+			for _, p := range all {
 				st, page, _ := b.get(p)
 				if st != http.StatusOK || !strings.Contains(page, "</html>") {
 					t.Errorf("%s (%s): %d %.200s", p, lang, st, page)

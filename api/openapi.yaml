@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: EDash API
-  version: 0.4.0
+  version: 0.5.0
   summary: Phase 1 contract for the consumer app, merchant app and admin console.
   description: |
     Conventions
@@ -793,6 +793,154 @@ paths:
         '204': { description: Signed out }
         '401': { $ref: '#/components/responses/Problem' }
         '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/merchants/{id}/team:
+    get:
+      tags: [Merchants]
+      summary: The shop's members and, for owners, its open invitations (owners and managers)
+      description: Phone numbers of members are masked. Open invitations, with the full number, are listed only for owners.
+      operationId: getTeam
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200':
+          description: The team
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [members, invitations]
+                properties:
+                  members: { type: array, items: { $ref: '#/components/schemas/TeamMember' } }
+                  invitations: { type: array, items: { $ref: '#/components/schemas/TeamInvitation' } }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/merchants/{id}/invitations:
+    post:
+      tags: [Merchants]
+      summary: Invite someone to the team by phone number (owners only)
+      description: >-
+        The invitation lasts 7 days and waits for people who haven't signed up yet. A new invitation to the
+        same number replaces the open one. At most 50 members and 20 open invitations per shop; owners can't
+        be invited. 409 if the number is already on the team or a limit is reached; 422 for a bad number or role.
+      operationId: inviteTeamMember
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, role]
+              properties:
+                phone: { type: string, description: 'E.164, or an Ethiopian number as typed (0911...)' }
+                role: { type: string, enum: [manager, cashier, accountant] }
+      responses:
+        '201':
+          description: Invited; the person is notified if they have an account
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TeamInvitation' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+
+  /v1/merchants/{id}/invitations/{invitation}:
+    delete:
+      tags: [Merchants]
+      summary: Cancel an open invitation (owners only)
+      operationId: cancelTeamInvitation
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { name: invitation, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Cancelled }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '410': { $ref: '#/components/responses/Problem' }
+
+  /v1/merchants/{id}/members/{user}:
+    parameters:
+      - { $ref: '#/components/parameters/Id' }
+      - { name: user, in: path, required: true, schema: { type: string, format: uuid } }
+    put:
+      tags: [Merchants]
+      summary: Change a member's role (owners only, not on owners)
+      operationId: setTeamMemberRole
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { type: string, enum: [manager, cashier, accountant] }
+      responses:
+        '204': { description: Changed; the member is notified }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [Merchants]
+      summary: Remove a member (owners), or leave the shop with your own user ID (not owners)
+      description: The member's web business console sessions for the shop end at once.
+      operationId: removeTeamMember
+      responses:
+        '204': { description: Removed }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/me/invitations:
+    get:
+      tags: [Merchants]
+      summary: Open team invitations sent to the signed-in person's phone number
+      operationId: listMyInvitations
+      responses:
+        '200':
+          description: Invitations, newest first, without the phone number
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/TeamInvitation' } }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /v1/me/invitations/{invitation}/accept:
+    post:
+      tags: [Merchants]
+      summary: Accept a team invitation and join the shop
+      operationId: acceptInvitation
+      parameters: [ { name: invitation, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200':
+          description: Joined; the shop as the person now sees it
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Merchant' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '410': { $ref: '#/components/responses/Problem' }
+
+  /v1/me/invitations/{invitation}/decline:
+    post:
+      tags: [Merchants]
+      summary: Decline a team invitation
+      operationId: declineInvitation
+      parameters: [ { name: invitation, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '204': { description: Declined; the owners are told }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '410': { $ref: '#/components/responses/Problem' }
 
   /v1/merchants/{id}/products/{product}/photo:
     put:
@@ -1605,6 +1753,29 @@ components:
         ip: { type: string }
         created_at: { type: string, format: date-time }
         last_seen_at: { type: string, format: date-time }
+
+    TeamMember:
+      type: object
+      required: [user_id, role, since, you]
+      properties:
+        user_id: { type: string, format: uuid }
+        name: { type: string }
+        phone: { type: string, description: 'Masked, for example ••4471' }
+        role: { type: string, enum: [owner, manager, cashier, accountant] }
+        since: { type: string, format: date-time }
+        you: { type: boolean }
+    TeamInvitation:
+      type: object
+      required: [id, merchant_id, role, expires_at]
+      properties:
+        id: { type: string, format: uuid }
+        merchant_id: { type: string, format: uuid }
+        shop: { type: string }
+        role: { type: string, enum: [manager, cashier, accountant] }
+        invited_by: { type: string, description: "The inviting owner's display name" }
+        phone: { type: string, description: E.164; only in the shop's own list }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }
 
     Currency:
       type: string

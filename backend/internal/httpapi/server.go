@@ -85,6 +85,7 @@ func (s *Server) Routes() http.Handler {
 		mux.Handle("GET /v1/merchants/{id}/qr", authed(s.merchantQR))
 		mux.Handle("GET /v1/merchants/{id}/documents", authed(s.listDocuments))
 		mux.Handle("POST /v1/merchants/{id}/documents", authed(s.uploadDocument))
+		s.teamRoutes(mux, authed)
 	}
 	if s.Payouts != nil {
 		mux.Handle("GET /v1/merchants/{id}/payouts", authed(s.listPayouts))

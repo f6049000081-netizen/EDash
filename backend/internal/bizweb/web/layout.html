@@ -22,6 +22,7 @@
       <a href="/business/products" {{if eq .Nav "products"}}aria-current="page"{{end}}>{{.T "nav_products"}}</a>
       <a href="/business/storefront" {{if eq .Nav "storefront"}}aria-current="page"{{end}}>{{.T "nav_storefront"}}</a>
       <a href="/business/money" {{if eq .Nav "money"}}aria-current="page"{{end}}>{{.T "nav_money"}}</a>
+      {{if .S.Manages}}<a href="/business/team" {{if eq .Nav "team"}}aria-current="page"{{end}}>{{.T "nav_team"}}</a>{{end}}
     </nav>
     <div class="me">
       <div class="me-name">{{.S.Name}}</div>

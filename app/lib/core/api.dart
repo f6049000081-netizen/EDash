@@ -90,6 +90,9 @@ class Api {
 
   bool get hasSession => _tokens != null;
 
+  /// The signed-in person's user ID, or null when signed out.
+  String? get userId => _tokens?.userId;
+
   Future<void> setTokens(Tokens? t) async {
     _tokens = t;
     await store.writeRefresh(t?.refresh);

@@ -193,6 +193,88 @@ class WebSession {
       j['browser'] as String, j['ip'] as String? ?? '', DateTime.parse(j['last_seen_at'] as String).toLocal());
 }
 
+/// Roles an owner can give. Owners themselves are part of the business record.
+const teamRoles = ['manager', 'cashier', 'accountant'];
+
+class TeamMember {
+  TeamMember(this.userId, this.name, this.phone, this.role, this.since, this.you);
+  final String userId;
+  final String name;
+  final String phone; // masked: ••4471
+  final String role;
+  final DateTime since;
+  final bool you;
+
+  factory TeamMember.fromJson(Map<String, dynamic> j) => TeamMember(
+      j['user_id'] as String,
+      j['name'] as String? ?? '',
+      j['phone'] as String? ?? '',
+      j['role'] as String,
+      DateTime.parse(j['since'] as String).toLocal(),
+      j['you'] as bool? ?? false);
+}
+
+/// An invitation to join a shop's team: the shop's open invitations (with the number), or the ones the
+/// signed-in person received.
+class TeamInvitation {
+  TeamInvitation(this.id, this.merchantId, this.shop, this.role, this.invitedBy, this.expiresAt, {this.phone});
+  final String id;
+  final String merchantId;
+  final String shop;
+  final String role;
+  final String invitedBy;
+  final DateTime expiresAt;
+  final String? phone;
+
+  factory TeamInvitation.fromJson(Map<String, dynamic> j) => TeamInvitation(
+      j['id'] as String,
+      j['merchant_id'] as String,
+      j['shop'] as String? ?? '',
+      j['role'] as String,
+      j['invited_by'] as String? ?? '',
+      DateTime.parse(j['expires_at'] as String).toLocal(),
+      phone: j['phone'] as String?);
+}
+
+class Team {
+  Team(this.members, this.invitations);
+  final List<TeamMember> members;
+  final List<TeamInvitation> invitations; // owners only
+
+  factory Team.fromJson(Map<String, dynamic> j) => Team(
+        [for (final m in (j['members'] as List?) ?? const []) TeamMember.fromJson(m as Map<String, dynamic>)],
+        [for (final i in (j['invitations'] as List?) ?? const []) TeamInvitation.fromJson(i as Map<String, dynamic>)],
+      );
+}
+
+extension TeamApi on GebeyaApi {
+  Future<Team> team(String merchantId) async => Team.fromJson(await api.get('/v1/merchants/$merchantId/team'));
+
+  Future<TeamInvitation> invite(String merchantId, String phone, String role) async =>
+      TeamInvitation.fromJson(await api.post('/v1/merchants/$merchantId/invitations', {'phone': phone, 'role': role}));
+
+  Future<void> cancelInvitation(String merchantId, String id) async =>
+      api.delete('/v1/merchants/$merchantId/invitations/$id');
+
+  Future<void> setMemberRole(String merchantId, String userId, String role) async =>
+      api.put('/v1/merchants/$merchantId/members/$userId', {'role': role});
+
+  /// Removes someone, or with the person's own user ID, leaves the shop.
+  Future<void> removeMember(String merchantId, String userId) async =>
+      api.delete('/v1/merchants/$merchantId/members/$userId');
+
+  Future<List<TeamInvitation>> myInvitations() async {
+    final j = await api.get('/v1/me/invitations');
+    return [for (final x in j['items'] as List) TeamInvitation.fromJson(x as Map<String, dynamic>)];
+  }
+
+  /// Accepting returns the shop joined; declining returns null.
+  Future<Merchant?> answerInvitation(String id, {required bool accept}) async {
+    final j = await api.post('/v1/me/invitations/$id/${accept ? 'accept' : 'decline'}', {});
+    return accept ? Merchant.fromJson(j) : null;
+  }
+}
+
 extension BusinessApi on GebeyaApi {
   Future<WebLogin> lookupWebLogin(String code) async =>
       WebLogin.fromJson(await api.post('/v1/web-logins/lookup', {'code': code}));

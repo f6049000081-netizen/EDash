@@ -427,6 +427,25 @@ CREATE TABLE merchant.members (
     PRIMARY KEY (merchant_id, user_id)
 );
 
+-- Joining a shop's team. An owner invites a phone number with a role; the person accepts in the app, so
+-- nobody is added to a business without agreeing. The invitation waits for numbers not yet on EDash and
+-- is matched when they sign up. Owners aren't invited this way: ownership changes go through KYB.
+CREATE TABLE merchant.invitations (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    merchant_id     UUID NOT NULL REFERENCES merchant.merchants(id),
+    phone_e164      TEXT NOT NULL CHECK (phone_e164 ~ '^\+[1-9][0-9]{7,14}$'),
+    role            TEXT NOT NULL CHECK (role IN ('manager', 'cashier', 'accountant')),
+    invited_by      UUID NOT NULL REFERENCES identity.users(id),
+    status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepted', 'declined', 'cancelled')),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at      TIMESTAMPTZ NOT NULL,             -- a pending invitation past this is treated as expired
+    answered_at     TIMESTAMPTZ,
+    answered_by     UUID REFERENCES identity.users(id),
+    CHECK ((status = 'pending') = (answered_at IS NULL))
+);
+CREATE UNIQUE INDEX ON merchant.invitations (merchant_id, phone_e164) WHERE status = 'pending';
+CREATE INDEX ON merchant.invitations (phone_e164) WHERE status = 'pending';
+
 -- Signing in to the web business console. The browser shows a one-time code; a member of the shop types
 -- it into the app and approves it with their PIN, which binds the browser to that person and that shop.
 -- Only hashes of the code and of the browser's secret are kept.

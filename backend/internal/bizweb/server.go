@@ -101,6 +101,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /business/storefront", s.authed(s.storefrontSave))
 	mux.Handle("POST /business/storefront/open", s.authed(s.storefrontOpen))
 	mux.Handle("GET /business/money", s.authed(s.money))
+	s.teamRoutes(mux)
 	return securityHeaders(mux)
 }
 

@@ -95,6 +95,8 @@ Profile → Business opens the shop for anyone who belongs to one, or the applic
 - **Product photos** (Business → Products, then a product): Add photo takes a picture or picks one from the gallery and uploads it at once; Change photo and Remove photo too. Customers see the thumbnails in the shop, and shops see them in their product list.
 - **Delivery times** (shop settings, under Delivery): turn on "Delivery times", then choose the first delivery, when the last one ends, how long each time is, how many orders each can take, how far ahead customers can book and how much notice you need. Orders show their booked time.
 - **Sign in on a computer** (Business → Sign in on a computer): type the code the web business console shows, check which browser it is, and approve with the PIN. The same screen lists the computers signed in, each with Sign out.
+- **Team** (Business → Team, for owners and managers): who works at the shop, with masked numbers. Owners invite someone by phone number as manager, cashier or accountant (with what each role can do), cancel open invitations, change roles and remove people. Members who aren't owners can leave the shop from the shop screen.
+- **Team invitations** appear above Business in the profile, with a count. Each shows the shop, who invited you and the role, with Accept and Decline. Accepting opens the shop.
 - **Not built yet:** promotions and insights from the design.
 
 ## Shops and orders (customers)

@@ -14,6 +14,7 @@ import '../ui/theme.dart';
 import '../ui/widgets.dart';
 import 'computer.dart';
 import 'shop_admin.dart';
+import 'team.dart';
 
 Future<T?> _sheet<T>(BuildContext context, Widget child) => showModalBottomSheet<T>(
       context: context,
@@ -36,6 +37,7 @@ class BusinessTile extends StatefulWidget {
 
 class _BusinessTileState extends State<BusinessTile> {
   List<Merchant>? _shops;
+  int _invitations = 0;
 
   @override
   void initState() {
@@ -44,12 +46,26 @@ class _BusinessTileState extends State<BusinessTile> {
   }
 
   Future<void> _load() async {
+    final api = AppScope.read(context).api;
     try {
-      final shops = await AppScope.read(context).api.myMerchants();
+      final shops = await api.myMerchants();
       if (mounted) setState(() => _shops = shops);
     } on ApiProblem {
       if (mounted) setState(() => _shops = const []);
     }
+    try {
+      final invites = await api.myInvitations();
+      if (mounted) setState(() => _invitations = invites.length);
+    } on ApiProblem {
+      // the shops row still works; the invitations row just stays hidden
+    }
+  }
+
+  Future<void> _openInvitations() async {
+    final nav = Navigator.of(context);
+    final joined = await nav.push<Merchant>(MaterialPageRoute(builder: (_) => const InvitationsScreen()));
+    if (joined != null) await nav.push(MaterialPageRoute(builder: (_) => BusinessScreen(joined.id)));
+    _load();
   }
 
   Future<void> _open() async {
@@ -84,7 +100,7 @@ class _BusinessTileState extends State<BusinessTile> {
   Widget build(BuildContext context) {
     final s = S.of(context);
     final shops = _shops;
-    return ListTile(
+    final tile = ListTile(
       leading: const Icon(Icons.storefront_outlined),
       title: Text(s.t('business')),
       subtitle: Text(shops == null
@@ -97,6 +113,18 @@ class _BusinessTileState extends State<BusinessTile> {
       trailing: const Icon(Icons.chevron_right),
       onTap: shops == null ? null : _open,
     );
+    if (_invitations == 0) return tile;
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      ListTile(
+        leading: Badge(label: Text('$_invitations'), child: const Icon(Icons.group_add_outlined)),
+        title: Text(s.t('invitations_title')),
+        subtitle: Text(s.t('invitations_count', {'n': '$_invitations'})),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: _openInvitations,
+      ),
+      const Divider(indent: G1.s4),
+      tile,
+    ]);
   }
 }
 
@@ -356,10 +384,49 @@ class _BusinessScreenState extends State<BusinessScreen> with WidgetsBindingObse
                     ],
                   ],
               },
+            if (m != null && m.status != 'suspended') ..._teamSection(context, m),
           ]),
         ),
       ),
     );
+  }
+
+  /// Team for owners and managers; Leave for everyone but owners.
+  List<Widget> _teamSection(BuildContext context, Merchant m) {
+    final s = S.of(context);
+    final c = G1.c(context);
+    final text = Theme.of(context).textTheme;
+    final sees = m.role == 'owner' || m.role == 'manager';
+    return [
+      const SizedBox(height: G1.s6),
+      Text(s.t('team_title').toUpperCase(), style: text.labelSmall),
+      const SizedBox(height: G1.s2),
+      Container(
+        decoration: BoxDecoration(
+            color: c.surface1, borderRadius: BorderRadius.circular(G1.rL), border: Border.all(color: c.line)),
+        clipBehavior: Clip.antiAlias,
+        child: Column(children: [
+          if (sees)
+            ListTile(
+              leading: const Icon(Icons.group_outlined),
+              title: Text(s.t('team_title')),
+              subtitle: Text(s.t(m.isOwner ? 'team_tile_owner' : 'team_tile_manager')),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => TeamScreen(m))),
+            ),
+          if (sees && !m.isOwner) const Divider(indent: G1.s4),
+          if (!m.isOwner)
+            ListTile(
+              leading: Icon(Icons.logout, color: c.danger),
+              title: Text(s.t('team_leave', {'shop': m.tradeName}), style: TextStyle(color: c.danger)),
+              onTap: () async {
+                final nav = Navigator.of(context);
+                if (await leaveShop(context, m)) nav.pop();
+              },
+            ),
+        ]),
+      ),
+    ];
   }
 
   Widget _notice(BuildContext context, IconData icon, String title, String body) {
