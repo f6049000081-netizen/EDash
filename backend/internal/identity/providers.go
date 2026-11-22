@@ -43,9 +43,9 @@ func maskPhone(p string) string {
 func otpText(locale, code string) string {
 	switch locale {
 	case "am":
-		return fmt.Sprintf("የGebeya One ኮድዎ %s ነው። ለማንም አያጋሩ።", code)
+		return fmt.Sprintf("የEDash ኮድዎ %s ነው። ለማንም አያጋሩ።", code)
 	default:
-		return fmt.Sprintf("Your Gebeya One code is %s. Never share it with anyone.", code)
+		return fmt.Sprintf("Your EDash code is %s. Never share it with anyone.", code)
 	}
 }
 

@@ -543,7 +543,7 @@ func (s *Service) sendOne(ctx context.Context) (int, error) {
 		}
 		reqID := fmt.Sprintf("%s-%d", id, attempts+1)
 		res, err := rail.Send(ctx, Transfer{RequestID: reqID, PayoutID: id, Amount: money.New(net, money.ETB),
-			Destination: *dest, Narrative: "Gebeya One payout"})
+			Destination: *dest, Narrative: "EDash payout"})
 		if err != nil {
 			// Unknown outcome (timeout, 5xx). The same request id is sent again later, which the partner
 			// treats as the same transfer.

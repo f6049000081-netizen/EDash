@@ -197,7 +197,7 @@ func TestQRPayload(t *testing.T) {
 	}
 	// Ge'ez names keep a Latin fallback and go in the alternate-language template.
 	am := merchants.StaticQR("12345674", "ቡና ቤት", "5812", "Adama")
-	if !strings.Contains(am, "5919GEBEYA ONE MERCHANT") || !strings.Contains(am, "64150002am0105ቡና ቤት") {
+	if !strings.Contains(am, "5914EDASH MERCHANT") || !strings.Contains(am, "64150002am0105ቡና ቤት") {
 		t.Errorf("amharic %s", am)
 	}
 	if cafe := merchants.StaticQR("12345674", "Buna Café", "5812", ""); !strings.Contains(cafe, "5909Buna Cafe") || strings.Contains(cafe, "0002am") {

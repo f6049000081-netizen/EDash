@@ -43,11 +43,11 @@ void main() {
   WidgetsFlutterBinding.ensureInitialized();
   final state = AppState(GebeyaApi(Api(baseUrl: apiBaseUrl, store: SecureTokenStore(), keys: ChannelDeviceKeys())));
   state.start();
-  runApp(GebeyaOneApp(state: state));
+  runApp(EDashApp(state: state));
 }
 
-class GebeyaOneApp extends StatelessWidget {
-  const GebeyaOneApp({super.key, required this.state});
+class EDashApp extends StatelessWidget {
+  const EDashApp({super.key, required this.state});
   final AppState state;
 
   @override
@@ -59,7 +59,7 @@ class GebeyaOneApp extends StatelessWidget {
         builder: (context, _) {
           final ethiopic = const {'am', 'ti'}.contains(state.locale.languageCode);
           return MaterialApp(
-            title: 'Gebeya One',
+            title: 'EDash',
             debugShowCheckedModeBanner: false,
             theme: g1Theme(Brightness.light, ethiopic: ethiopic),
             darkTheme: g1Theme(Brightness.dark, ethiopic: ethiopic),
@@ -92,15 +92,14 @@ class _Splash extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
         body: Center(
-          child: Text('Gebeya One',
-              style: Theme.of(context).textTheme.displayMedium?.copyWith(color: G1.c(context).brand)),
+          child: Text('EDash', style: Theme.of(context).textTheme.displayMedium?.copyWith(color: G1.c(context).brand)),
         ),
       );
 }
 
 /// Flutter ships Material and Cupertino translations for Amharic and English but not for
 /// Afaan Oromo or Tigrinya. For those two, the framework's own labels (back, paste, and so on)
-/// use English; all Gebeya One copy still comes from [S].
+/// use English; all EDash copy still comes from [S].
 class FallbackMaterialLocalizations extends LocalizationsDelegate<MaterialLocalizations> {
   const FallbackMaterialLocalizations();
 

@@ -28,7 +28,7 @@ void main() {
       return json({'code': 'unauthenticated'}, 401);
     });
     await state.start();
-    await tester.pumpWidget(GebeyaOneApp(state: state));
+    await tester.pumpWidget(EDashApp(state: state));
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byType(TextField), '0911 23');
@@ -51,7 +51,7 @@ void main() {
     for (final code in ['am', 'om', 'ti', 'en']) {
       final state = appWith((r) async => json({'code': 'unauthenticated'}, 401), locale: Locale(code));
       await state.start();
-      await tester.pumpWidget(GebeyaOneApp(state: state));
+      await tester.pumpWidget(EDashApp(state: state));
       await tester.pumpAndSettle();
       expect(tester.takeException(), isNull, reason: code);
       expect(find.byType(TextField), findsOneWidget, reason: code);
@@ -128,7 +128,7 @@ void main() {
         });
     await state.api.api.store.writeRefresh('r1');
     await state.start();
-    await tester.pumpWidget(GebeyaOneApp(state: state));
+    await tester.pumpWidget(EDashApp(state: state));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Hana'), findsWidgets);

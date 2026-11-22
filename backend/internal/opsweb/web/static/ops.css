@@ -1,4 +1,4 @@
-/* Gebeya One operations console. Colours and radii from the design system (tokens in the design canvas). */
+/* EDash operations console. Colours and radii from the design system (tokens in the design canvas). */
 :root {
   --brand: #0e5a63; --brand-strong: #0a434a; --brand-tint: #e3f1f1;
   --accent: #e8a317; --ink: #14201f; --muted: #566462; --line: #dce3e1;

@@ -1,4 +1,4 @@
-# Gebeya One: consumer app (Flutter)
+# EDash: consumer app (Flutter)
 
 The wallet app for Android and iOS, built on the approved design system and connected to the Go API in `../backend`.
 

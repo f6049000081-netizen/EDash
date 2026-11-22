@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// Gebeya One design tokens, copied value for value from the design system (tokens.json).
+/// EDash design tokens, copied value for value from the design system (tokens.json).
 @immutable
 class G1Colors extends ThemeExtension<G1Colors> {
   const G1Colors({

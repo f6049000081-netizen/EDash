@@ -1,4 +1,4 @@
--- Gebeya One: core data model (PostgreSQL 16)
+-- EDash: core data model (PostgreSQL 16)
 -- Scope: Phase 1 (identity, wallet ledger, payments, bills, merchants, admin)
 -- plus the Phase 2 to 4 tables later modules need, so foreign keys don't change later.
 --

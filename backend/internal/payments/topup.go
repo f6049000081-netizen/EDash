@@ -71,7 +71,7 @@ func DefaultTopUpLimits() TopUpLimits {
 		MaxMinor:     10_000_000, // ETB 100,000
 		MaxPending:   5,
 		Expiry:       2*time.Hour + 15*time.Minute, // telebirr orders time out after 120 minutes
-		CheckoutName: "Gebeya One wallet top-up",
+		CheckoutName: "EDash wallet top-up",
 	}
 }
 

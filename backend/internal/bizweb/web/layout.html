@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 {{if .Refresh}}<meta http-equiv="refresh" content="{{.Refresh}}">{{end}}
-<title>{{block "title" .}}{{.T "business"}}{{end}} · Gebeya One</title>
+<title>{{block "title" .}}{{.T "business"}}{{end}} · EDash</title>
 <link rel="stylesheet" href="/business/static/biz.css">
 </head>
 <body>
 {{if .S}}
 <div class="shell">
   <aside class="side">
-    <div class="brand">Gebeya One <span class="tag">{{.T "business"}}</span></div>
+    <div class="brand">EDash <span class="tag">{{.T "business"}}</span></div>
     <div class="shop">
       <span class="avatar" aria-hidden="true">{{initial .S.Shop}}</span>
       <span><span class="shop-name">{{.S.Shop}}</span><span class="muted">{{.T (printf "role_%s" .S.Role)}}</span></span>

@@ -1,6 +1,8 @@
-# Gebeya One: working notes for Claude
+# EDash: working notes for Claude
 
 Wallet-centred super app for Ethiopia and the diaspora. The original brief is `Master Prompt.docx`. Read `README.md` (project) and `backend/README.md` (service) before changing code; they describe the design and current state in detail.
+
+**Name.** The app is called **EDash** (Amharic ኢዳሽ), renamed from Gebeya One on 2026-11-22. Everything people see says EDash. Identifiers were kept on purpose, because changing them would install a separate app, sign everyone out or break registered keys: the Android `applicationId` and iOS bundle ID `one.gebeya.*`, the Dart package `gebeya_one`, the token issuer and audience `gebeya-one`, the payment-confirmation prefix `gebeya-one/confirm/v1`, the UUID namespaces under `https://gebeya.one/`, the QR GUID `one.gebeya.pay`, and the `g1` cookie, container and volume names. The example domains (`api.gebeya.one` and so on) stay until a real domain is chosen.
 
 ## Hard rules from the brief
 

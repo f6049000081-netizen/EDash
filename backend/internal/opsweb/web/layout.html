@@ -4,14 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 {{block "head" .}}{{end}}
-<title>{{block "title" .}}Operations{{end}} · Gebeya One</title>
+<title>{{block "title" .}}Operations{{end}} · EDash</title>
 <link rel="stylesheet" href="/ops/static/ops.css">
 </head>
 <body>
 {{if .Session}}
 <div class="shell">
   <aside class="side">
-    <div class="brand">Gebeya One <span class="tag">Operations</span></div>
+    <div class="brand">EDash <span class="tag">Operations</span></div>
     <nav aria-label="Sections">
       <a href="/ops/" {{if eq .Nav "dashboard"}}aria-current="page"{{end}}>Overview</a>
       <a href="/ops/merchants?status=review" {{if or (eq .Nav "merchants") (eq .Nav "merchant")}}aria-current="page"{{end}}><span>Merchants</span>{{if .Counts.Applications}}<span class="count">{{.Counts.Applications}} to review</span>{{end}}</a>

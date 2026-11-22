@@ -97,7 +97,7 @@ QR payments split the amount three ways: debit the payer, credit the merchant se
 - **Approval** is done by staff in the operations console (below). `Approve` gives the shop:
   - an 8-digit merchant number (random, last digit a Luhn check digit)
   - a static EMVCo merchant-presented QR. The merchant account template (tag 26) uses the GUID `one.gebeya.pay`. Names are folded to plain Latin for tag 59, and Ge'ez names also go in tag 64. The CRC is CRC-16/CCITT-FALSE.
-  - Other wallets can parse the QR, but only Gebeya One resolves it until the national interoperable QR scheme registers the template.
+  - Other wallets can parse the QR, but only EDash resolves it until the national interoperable QR scheme registers the template.
   - For local development: `./dev-approve-merchant.sh <merchant id | TIN>`. It runs `cmd/devtool`, which refuses any database that isn't local.
 - **Roles** (`merchant.members`):
   - Every member sees the shop, today's sales and the payments received (`GET /v1/merchants/{id}/summary`, `/payments`). That's how a cashier checks a customer has paid.

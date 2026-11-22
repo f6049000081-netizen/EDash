@@ -332,9 +332,9 @@ func ValidMerchantNo(s string) bool {
 // QR
 // ---------------------------------------------------------------------------
 
-// QRGUID identifies Gebeya One in the merchant account template. Other wallets can read the code's
+// QRGUID identifies EDash in the merchant account template. Other wallets can read the code's
 // format, name and amount, but paying through them needs the interoperability scheme (EthSwitch) to
-// register this template; until then, only Gebeya One resolves it.
+// register this template; until then, only EDash resolves it.
 const QRGUID = "one.gebeya.pay"
 
 // StaticQR builds an EMVCo merchant-presented QR payload (static: the payer enters the amount).
@@ -352,7 +352,7 @@ func StaticQR(merchantNo, name, category, city string) string {
 	tlv(&b, "52", category)
 	tlv(&b, "53", "230") // ETB
 	tlv(&b, "58", "ET")
-	tlv(&b, "59", latin(name, 25, "GEBEYA ONE MERCHANT"))
+	tlv(&b, "59", latin(name, 25, "EDASH MERCHANT"))
 	tlv(&b, "60", latin(city, 15, "ADDIS ABABA"))
 	if strings.ContainsFunc(name, func(r rune) bool { return unicode.Is(unicode.Ethiopic, r) }) {
 		// Names in Ge'ez script go in the alternate-language template, so wallets can show them.

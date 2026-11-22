@@ -1,5 +1,5 @@
 name: gebeya_one
-description: Gebeya One consumer app (wallet, payments, top-ups).
+description: EDash consumer app (wallet, payments, top-ups).
 publish_to: none
 version: 0.1.0+1
 

@@ -1,6 +1,6 @@
-# Gebeya One
+# EDash
 
-Gebeya One is a wallet-centred super app for Ethiopia and the diaspora. This repository holds the Phase 1 foundations: the data model and the API contract.
+EDash is a wallet-centred super app for Ethiopia and the diaspora. This repository holds the Phase 1 foundations: the data model and the API contract.
 
 ## Design work
 

@@ -19,7 +19,7 @@ class ApiProblem implements Exception {
   final Duration? retryAfter;
 
   static ApiProblem network() =>
-      ApiProblem(0, 'network', 'No connection', "We couldn't reach Gebeya One. Check your connection and try again.");
+      ApiProblem(0, 'network', 'No connection', "We couldn't reach EDash. Check your connection and try again.");
 
   @override
   String toString() => 'ApiProblem($status $code: $message)';
@@ -66,7 +66,7 @@ class MemoryTokenStore implements TokenStore {
   Future<String> installId() async => _install;
 }
 
-/// Thin client for the Gebeya One API. It attaches the access token, refreshes it once on 401,
+/// Thin client for the EDash API. It attaches the access token, refreshes it once on 401,
 /// adds an Idempotency-Key to every state-changing call, and turns error bodies into [ApiProblem].
 class Api {
   Api(

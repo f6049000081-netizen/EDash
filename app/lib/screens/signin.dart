@@ -72,7 +72,7 @@ class _PhoneScreenState extends State<PhoneScreen> {
               child: _LanguageButton(current: app.locale, onChanged: app.setLocale),
             ),
             const SizedBox(height: G1.s8),
-            Text('Gebeya One', style: text.displayMedium?.copyWith(color: c.brand)),
+            Text('EDash', style: text.displayMedium?.copyWith(color: c.brand)),
             const SizedBox(height: G1.s6),
             Text(s.t('welcome_title'), style: text.titleLarge),
             const SizedBox(height: G1.s2),

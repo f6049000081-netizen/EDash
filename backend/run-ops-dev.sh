@@ -32,7 +32,7 @@ web: {http: 0.0.0.0:5556}
 oauth2: {skipApprovalScreen: true}
 staticClients:
   - id: g1ops
-    name: Gebeya One operations (dev)
+    name: EDash operations (dev)
     secret: $CLIENT_SECRET
     redirectURIs: ['http://localhost:8090/ops/callback']
 enablePasswordDB: true
