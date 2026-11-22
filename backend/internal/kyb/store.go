@@ -127,6 +127,30 @@ func (s *Sealer) Open(keyID, objectKey string, blob []byte) ([]byte, error) {
 // FromEnv builds the document service from S3_ENDPOINT, S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY, S3_REGION,
 // S3_INSECURE ("true" for plain HTTP, dev only) and DOCS_KEYS (see ParseKeys). Without S3_ENDPOINT it
 // returns nil: documents are switched off.
+// S3FromEnv reaches the object store named by the S3_* settings, using the bucket in bucketVar (or
+// defaultBucket). It returns nil when S3_ENDPOINT isn't set. Product photos use it with their own bucket.
+func S3FromEnv(ctx context.Context, getenv func(string) string, bucketVar, defaultBucket string) (*S3, error) {
+	env := func(k string) string { return strings.TrimSpace(getenv(k)) }
+	if env("S3_ENDPOINT") == "" {
+		return nil, nil
+	}
+	bucket := env(bucketVar)
+	if bucket == "" {
+		bucket = defaultBucket
+	}
+	store, err := NewS3(S3Config{Endpoint: env("S3_ENDPOINT"), Bucket: bucket, AccessKey: env("S3_ACCESS_KEY"),
+		SecretKey: env("S3_SECRET_KEY"), Region: env("S3_REGION"), Insecure: env("S3_INSECURE") == "true"})
+	if err != nil {
+		return nil, err
+	}
+	if env("S3_INSECURE") == "true" {
+		if err := store.EnsureBucket(ctx); err != nil {
+			return nil, fmt.Errorf("storage %s: %w", bucket, err)
+		}
+	}
+	return store, nil
+}
+
 func FromEnv(ctx context.Context, pool *pgxpool.Pool, getenv func(string) string) (*Service, error) {
 	env := func(k string) string { return strings.TrimSpace(getenv(k)) }
 	if env("S3_ENDPOINT") == "" {

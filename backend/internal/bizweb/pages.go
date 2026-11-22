@@ -3,6 +3,7 @@ package bizweb
 import (
 	"crypto/subtle"
 	"errors"
+	"io"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -14,6 +15,7 @@ import (
 	"superapp/backend/internal/merchants"
 	"superapp/backend/internal/money"
 	"superapp/backend/internal/payouts"
+	"superapp/backend/internal/photos"
 )
 
 func tokensEqual(a, b string) bool { return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1 }
@@ -180,6 +182,7 @@ type productData struct {
 	Description string
 	Stock       string
 	Hidden      bool
+	Photo       string // the current photo's ID
 }
 
 func (s *Server) productForm(w http.ResponseWriter, r *http.Request, sess *Session) {
@@ -206,7 +209,7 @@ func (s *Server) productForm(w http.ResponseWriter, r *http.Request, sess *Sessi
 			return
 		}
 		d = productData{ID: p.ID.String(), Title: p.Title, Price: p.Price.Decimal(), Category: p.Category,
-			Description: p.Description, Hidden: p.Status == "hidden"}
+			Description: p.Description, Hidden: p.Status == "hidden", Photo: p.Photo}
 		if p.Stock != nil {
 			d.Stock = strconv.Itoa(*p.Stock)
 		}
@@ -275,6 +278,77 @@ func (s *Server) productSave(w http.ResponseWriter, r *http.Request, sess *Sessi
 	default:
 		s.serverError(w, r, sess, err)
 	}
+}
+
+// productPhoto adds, replaces or removes a product's photo (a multipart form with the file in "photo").
+func (s *Server) productPhoto(w http.ResponseWriter, r *http.Request, sess *Session) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	back := func(code string) {
+		http.Redirect(w, r, "/business/products/"+id.String()+"?msg="+code, http.StatusSeeOther)
+	}
+	var err error
+	if r.PostFormValue("remove") != "" {
+		_, err = s.Shops.RemoveProductPhoto(r.Context(), sess.UserID, sess.MerchantID, id)
+		if err == nil {
+			back("photo_removed")
+			return
+		}
+	} else {
+		f, _, ferr := r.FormFile("photo")
+		if ferr != nil {
+			back("photo_bad")
+			return
+		}
+		defer f.Close()
+		data, rerr := io.ReadAll(io.LimitReader(f, photos.MaxSize+1))
+		if rerr != nil {
+			back("photo_bad")
+			return
+		}
+		_, err = s.Shops.SetProductPhoto(r.Context(), sess.UserID, sess.MerchantID, id, data)
+		if err == nil {
+			back("photo_saved")
+			return
+		}
+	}
+	var v *commerce.ValidationError
+	switch {
+	case errors.As(err, &v):
+		back("photo_bad")
+	case errors.Is(err, commerce.ErrPhotosOff):
+		back("photos_off")
+	case errors.Is(err, commerce.ErrForbidden):
+		back("forbidden")
+	case errors.Is(err, commerce.ErrNotFound):
+		http.NotFound(w, r)
+	default:
+		s.serverError(w, r, sess, err)
+	}
+}
+
+// productPhotoFile shows a product photo on the console's own origin, as its CSP allows.
+func (s *Server) productPhotoFile(w http.ResponseWriter, r *http.Request, sess *Session) {
+	id, ok := parseID(r)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	if _, err := s.Shops.ShopProduct(r.Context(), sess.MerchantID, id); err != nil {
+		http.NotFound(w, r) // another shop's product
+		return
+	}
+	data, err := s.Shops.ProductPhoto(r.Context(), id, r.PathValue("photo"), r.URL.Query().Get("size") == "thumb")
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "image/jpeg")
+	w.Header().Set("Cache-Control", "private, max-age=86400, immutable")
+	_, _ = w.Write(data)
 }
 
 // ---------------------------------------------------------------------------

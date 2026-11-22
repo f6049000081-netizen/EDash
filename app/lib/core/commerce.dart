@@ -66,6 +66,8 @@ class Product {
     required this.stock,
     required this.soldOut,
     required this.status,
+    this.photoUrl,
+    this.thumbUrl,
   });
 
   final String id;
@@ -76,6 +78,8 @@ class Product {
   final int? stock; // null: the shop doesn't count it
   final bool soldOut;
   final String status; // active, hidden, archived
+  final String? photoUrl; // paths on the API server; null: no photo
+  final String? thumbUrl;
 
   factory Product.fromJson(Map<String, dynamic> j) => Product(
         id: j['id'] as String,
@@ -86,6 +90,8 @@ class Product {
         stock: (j['stock'] as num?)?.toInt(),
         soldOut: j['sold_out'] as bool? ?? false,
         status: j['status'] as String? ?? 'active',
+        photoUrl: (j['photo'] as Map<String, dynamic>?)?['url'] as String?,
+        thumbUrl: (j['photo'] as Map<String, dynamic>?)?['thumb_url'] as String?,
       );
 
   /// The most a customer can put in the basket.
@@ -314,6 +320,13 @@ extension CommerceApi on GebeyaApi {
         'delivery_area': deliveryArea,
         'about': about,
       }));
+
+  /// Replaces a product's photo with a JPEG (or PNG/WebP) taken or chosen on the phone.
+  Future<Product> setProductPhoto(String merchantId, String productId, List<int> photo) async =>
+      Product.fromJson(await api.putBytes('/v1/merchants/$merchantId/products/$productId/photo', photo, 'image/jpeg'));
+
+  Future<Product> removeProductPhoto(String merchantId, String productId) async =>
+      Product.fromJson(await api.delete('/v1/merchants/$merchantId/products/$productId/photo'));
 
   Future<Product> saveProduct(String merchantId,
       {String? id,

@@ -25,6 +25,11 @@ func (s *Server) commerceRoutes(mux *http.ServeMux, authed, mutating func(http.H
 	mux.Handle("PUT /v1/merchants/{id}/shop", mutating(s.putShopSettings))
 	mux.Handle("POST /v1/merchants/{id}/products", mutating(s.createProduct))
 	mux.Handle("PUT /v1/merchants/{id}/products/{product}", mutating(s.putProduct))
+	mux.Handle("PUT /v1/merchants/{id}/products/{product}/photo", authed(s.putProductPhoto))
+	mux.Handle("DELETE /v1/merchants/{id}/products/{product}/photo", authed(s.deleteProductPhoto))
+	// Product photos are public shop content, and their URLs change with every new photo, so they're
+	// served without sign-in (the app's image loader can't sign requests) and cached for good.
+	mux.HandleFunc("GET /v1/products/{product}/photos/{photo}", s.getProductPhoto)
 	mux.Handle("GET /v1/merchants/{id}/orders", authed(s.listShopOrders))
 	mux.Handle("POST /v1/merchants/{id}/orders/{order}/{action}", mutating(s.shopOrderAction))
 }
@@ -76,9 +81,14 @@ func shopJSON(sh *commerce.Shop, withProducts bool) map[string]any {
 }
 
 func productJSON(p commerce.Product) map[string]any {
+	var photo any
+	if p.Photo != "" {
+		url := "/v1/products/" + p.ID.String() + "/photos/" + p.Photo
+		photo = map[string]any{"id": p.Photo, "url": url, "thumb_url": url + "?size=thumb"}
+	}
 	return map[string]any{
 		"id": p.ID, "title": p.Title, "description": p.Description, "category": p.Category, "price": p.Price,
-		"stock": p.Stock, "sold_out": p.SoldOut(), "status": p.Status, "updated_at": p.UpdatedAt,
+		"stock": p.Stock, "sold_out": p.SoldOut(), "status": p.Status, "photo": photo, "updated_at": p.UpdatedAt,
 	}
 }
 

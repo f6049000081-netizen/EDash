@@ -144,6 +144,10 @@ class Api {
           {Map<String, String>? query}) =>
       _authed('POST', path, bytes: bytes, contentType: contentType, query: query, timeout: const Duration(minutes: 3));
 
+  /// Like [postBytes], with PUT: replacing something with an uploaded file.
+  Future<Map<String, dynamic>> putBytes(String path, List<int> bytes, String contentType) =>
+      _authed('PUT', path, bytes: bytes, contentType: contentType, timeout: const Duration(minutes: 3));
+
   /// Calls that need no session (sign-in).
   Future<Map<String, dynamic>> postPublic(String path, Map<String, dynamic> body) =>
       _send('POST', path, body: body, auth: false);

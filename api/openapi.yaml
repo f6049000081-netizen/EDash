@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: EDash API
-  version: 0.2.0
+  version: 0.3.0
   summary: Phase 1 contract for the consumer app, merchant app and admin console.
   description: |
     Conventions
@@ -793,6 +793,75 @@ paths:
         '204': { description: Signed out }
         '401': { $ref: '#/components/responses/Problem' }
         '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/merchants/{id}/products/{product}/photo:
+    put:
+      tags: [Commerce]
+      summary: Add or replace a product's photo (owners and managers)
+      description: |
+        The photo is the raw request body: JPEG, PNG or WebP, up to 10 MB and 40 megapixels, at least 200 pixels
+        on each side. The server checks it by its content and draws it again as two JPEGs (1200 px and a
+        320 px thumbnail), so nothing from the original file is kept, such as the location a phone camera
+        records. Each new photo gets a new ID, and the old one is deleted. Answers photos_unavailable (503)
+        when no photo storage is set up.
+      operationId: putProductPhoto
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { name: product, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          image/jpeg: { schema: { type: string, format: binary } }
+          image/png: { schema: { type: string, format: binary } }
+          image/webp: { schema: { type: string, format: binary } }
+      responses:
+        '200':
+          description: The product with its new photo
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '413': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+    delete:
+      tags: [Commerce]
+      summary: Remove a product's photo (owners and managers)
+      operationId: deleteProductPhoto
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { name: product, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: The product without a photo
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Product' }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/products/{product}/photos/{photo}:
+    get:
+      tags: [Commerce]
+      summary: A product's photo as JPEG
+      description: |
+        Public shop content, served without sign-in so image loaders can fetch it. Only a product's current
+        photo is served; the URL changes with every new photo, so responses are cached for a year.
+      operationId: getProductPhoto
+      security: []
+      parameters:
+        - { name: product, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: photo, in: path, required: true, schema: { type: string, pattern: '^[0-9a-f]{24}$' } }
+        - { name: size, in: query, schema: { type: string, enum: [thumb] }, description: thumb is 320 px; otherwise 1200 px. }
+      responses:
+        '200':
+          description: The photo
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+        '404': { description: "No such photo, or not the product's current one" }
 
   /v1/merchants/{id}:
     get:
@@ -1638,6 +1707,13 @@ components:
         sold_out: { type: boolean }
         status: { type: string, enum: [active, hidden, archived] }
         updated_at: { type: string, format: date-time }
+        photo:
+          type: [object, 'null']
+          description: The product's photo, or null. URLs are relative to the API's base URL.
+          properties:
+            id: { type: string }
+            url: { type: string, example: /v1/products/0192f1c2-.../photos/a1b2c3d4e5f6a1b2c3d4e5f6 }
+            thumb_url: { type: string }
     ProductInput:
       type: object
       required: [title, price]

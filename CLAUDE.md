@@ -20,7 +20,7 @@ Wallet-centred super app for Ethiopia and the diaspora. The original brief is `M
 6. **telebirr top-ups and daily reconciliation.** Switched off until merchant credentials are set. The wire details still to confirm against the telebirr merchant agreement are listed in `backend/README.md`.
 7. **Backend round for the app:** activity feed, KYC limit enforcement (values still to come from compliance) and `PATCH /v1/me`.
 
-8. **Flutter consumer app** in `app/`: sign-in, PIN, home, send, QR pay, telebirr top-up, activity and profile, in four languages. `flutter analyze` is clean and 40 tests pass. Run it with `app/flutterw.sh` (Flutter runs in Docker from the `g1flutter` volume). A debug APK builds with `./flutterw.sh 'flutter build apk --debug ...'` (Android SDK and JDK 17 in the `g1android` volume). Tested on a real Android phone against the dev server (`backend/run-dev.sh`) on 2026-11-21: sign-in, PIN, balance, QR pay and send to a phone number all worked. Test money comes from `backend/dev-topup.sh` (sandbox rail).
+8. **Flutter consumer app** in `app/`: sign-in, PIN, home, send, QR pay, telebirr top-up, activity and profile, in four languages. `flutter analyze` is clean and 41 tests pass. Run it with `app/flutterw.sh` (Flutter runs in Docker from the `g1flutter` volume). A debug APK builds with `./flutterw.sh 'flutter build apk --debug ...'` (Android SDK and JDK 17 in the `g1android` volume). Tested on a real Android phone against the dev server (`backend/run-dev.sh`) on 2026-11-21: sign-in, PIN, balance, QR pay and send to a phone number all worked. Test money comes from `backend/dev-topup.sh` (sandbox rail).
 
 9. **Outbox relay and notifications** (2026-11-22): relay to Kafka or in-process (`internal/outbox`), notifications service with am/en text, in-app list and bell, push tokens, Firebase sender (off until a Firebase project exists). Tested on the phone: the bell showed Abebe's notifications.
 
@@ -42,7 +42,9 @@ Wallet-centred super app for Ethiopia and the diaspora. The original brief is `M
 
 18. **Unfinished orders** (2026-11-22): accepted orders not handed over are reminded after 24 h (`order.overdue`) and passed to operations after 72 h (`order.review`); nothing is settled automatically. Console page "Unfinished orders" (`orders.settle`): refund the customer (`not_completed`) or pay the shop, each with a second person. The app, the web business console and notifications (am/en) show both states. Checked live on 2026-11-22.
 
-**Next on the roadmap:** product photos and delivery slots; team and roles in the business console. Also open: the iOS Secure Enclave side of device keys, key attestation and then `DPOP_REQUIRED=true`, a list of signed-in devices with sign-out, and a licensed payout partner. Waiting on others: a native-speaker review of the Afaan Oromo and Tigrinya text, and a Firebase project for lock-screen pushes. Telebirr go-live work is listed under "Next" in `backend/README.md`.
+19. **Product photos** (2026-11-22): `internal/photos` re-encodes uploads (JPEG/PNG/WebP, 10 MB, 40 MP) into 1200 px and 320 px JPEGs without EXIF/GPS, stored in the S3 bucket `S3_PHOTOS_BUCKET` (default `product-photos`) and served publicly by `GET /v1/products/{product}/photos/{photo}` (current photo only, cached for good). Added in the app (Business → Products) and the web business console; customers see thumbnails in the shop. Checked live on 2026-11-22.
+
+**Next on the roadmap:** delivery slots; team and roles in the business console. Also open: the iOS Secure Enclave side of device keys, key attestation and then `DPOP_REQUIRED=true`, a list of signed-in devices with sign-out, and a licensed payout partner. Waiting on others: a native-speaker review of the Afaan Oromo and Tigrinya text, and a Firebase project for lock-screen pushes. Telebirr go-live work is listed under "Next" in `backend/README.md`.
 
 ## Running things (Windows; Go is NOT installed, everything runs in Docker)
 

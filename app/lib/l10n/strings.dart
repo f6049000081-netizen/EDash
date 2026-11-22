@@ -27,6 +27,10 @@ class S {
 
   static const _strings = <String, Map<String, String>>{
     'en': {
+      'photo_add': 'Add photo',
+      'photo_change': 'Change photo',
+      'photo_remove': 'Remove photo',
+      'photo_after_save': 'You can add a photo once the product is saved.',
       'order_cancelled_not_completed': 'It wasn\'t handed over, so our team refunded it.',
       'order_overdue':
           'This is taking a while. If you already have your order, tap "I have my order" below so {shop} is paid.',
@@ -404,6 +408,10 @@ class S {
       'retry': 'Retry',
     },
     'am': {
+      'photo_add': 'ፎቶ ያክሉ',
+      'photo_change': 'ፎቶ ይቀይሩ',
+      'photo_remove': 'ፎቶ ያስወግዱ',
+      'photo_after_save': 'ዕቃው ከተቀመጠ በኋላ ፎቶ ማከል ይችላሉ።',
       'order_cancelled_not_completed': 'ትዕዛዙ ስላልተረከበ ቡድናችን ገንዘቡን መልሷል።',
       'order_overdue': 'ትንሽ ዘግይቷል። ትዕዛዝዎን አስቀድመው ከተቀበሉ {shop} እንዲከፈለው ከታች "ትዕዛዜን ተቀብያለሁ"ን ይንኩ።',
       'order_in_review': 'ስላልተረከበ ቡድናችን ከ{shop} ጋር እያጣራ ነው። ገንዘብዎ ደህንነቱ የተጠበቀ ነው፤ ካልደረሰዎት ይመለስልዎታል።',

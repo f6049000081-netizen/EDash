@@ -22,6 +22,7 @@ import (
 
 	"superapp/backend/internal/bizweb"
 	"superapp/backend/internal/commerce"
+	"superapp/backend/internal/kyb"
 	"superapp/backend/internal/ledger"
 	"superapp/backend/internal/merchants"
 	"superapp/backend/internal/payments"
@@ -61,6 +62,11 @@ func run(log *slog.Logger) error {
 	// Shops cancel orders (refunds) and hand them over (settlement) here, through the same services.
 	pay := payments.NewService(pool, ledger.New(), payments.DefaultRules(), pin)
 	shops := commerce.New(pool, pay)
+	if pics, err := kyb.S3FromEnv(ctx, os.Getenv, "S3_PHOTOS_BUCKET", "product-photos"); err != nil {
+		return err
+	} else if pics != nil {
+		shops.Photos = pics
+	}
 	web, err := bizweb.New(base, &bizweb.Store{Pool: pool, PIN: pin}, &merchants.Service{Pool: pool}, shops,
 		payouts.NewService(pool, ledger.New(), pin), log)
 	if err != nil {

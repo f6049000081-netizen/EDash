@@ -1,9 +1,12 @@
 package commerce_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"image"
+	"image/png"
 	"os"
 	"strings"
 	"sync"
@@ -531,5 +534,121 @@ func TestUnfinishedOrdersAreRemindedThenSettledByOperations(t *testing.T) {
 	}
 	if err := settle(fresh.ID, "refund"); err == nil || !strings.Contains(err.Error(), "handed over in the meantime") {
 		t.Fatalf("settling a finished order: %v", err)
+	}
+}
+
+// memPhotos keeps photos in memory for tests.
+type memPhotos struct {
+	mu    sync.Mutex
+	files map[string][]byte
+}
+
+func (m *memPhotos) Put(_ context.Context, key string, data []byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.files[key] = data
+	return nil
+}
+
+func (m *memPhotos) Get(_ context.Context, key string) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	d, ok := m.files[key]
+	if !ok {
+		return nil, errors.New("no such file")
+	}
+	return d, nil
+}
+
+func (m *memPhotos) Delete(_ context.Context, key string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.files, key)
+	return nil
+}
+
+func testPNG(t *testing.T, w, h int) []byte {
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for i := range img.Pix {
+		img.Pix[i] = uint8(i)
+	}
+	var b bytes.Buffer
+	if err := png.Encode(&b, img); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
+}
+
+func TestProductPhotos(t *testing.T) {
+	e := setup(t)
+	owner, shop, injera, _ := e.shop()
+	cashier := e.user("Cashier")
+	e.exec(`INSERT INTO merchant.members (merchant_id, user_id, role) VALUES ($1, $2, 'cashier')`, shop, cashier)
+
+	if _, err := e.svc.SetProductPhoto(e.ctx, owner, shop, injera, testPNG(t, 600, 400)); !errors.Is(err, commerce.ErrPhotosOff) {
+		t.Fatalf("without storage: %v", err)
+	}
+	store := &memPhotos{files: map[string][]byte{}}
+	e.svc.Photos = store
+
+	if _, err := e.svc.SetProductPhoto(e.ctx, cashier, shop, injera, testPNG(t, 600, 400)); !errors.Is(err, commerce.ErrForbidden) {
+		t.Fatalf("cashier: %v", err)
+	}
+	if _, err := e.svc.SetProductPhoto(e.ctx, owner, shop, injera, []byte("not a photo")); err == nil ||
+		!strings.Contains(err.Error(), "JPEG, PNG or WebP") {
+		t.Fatalf("not a photo: %v", err)
+	}
+	_, other, _, _ := e.shop()
+	if _, err := e.svc.SetProductPhoto(e.ctx, owner, other, injera, testPNG(t, 600, 400)); err == nil {
+		t.Fatal("photo set on another shop's product")
+	}
+
+	p, err := e.svc.SetProductPhoto(e.ctx, owner, shop, injera, testPNG(t, 600, 400))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Photo) != 24 || len(store.files) != 2 {
+		t.Fatalf("after upload: photo %q, %d files", p.Photo, len(store.files))
+	}
+	first := p.Photo
+	full, err := e.svc.ProductPhoto(e.ctx, injera, first, false)
+	if err != nil || !bytes.HasPrefix(full, []byte{0xFF, 0xD8}) {
+		t.Fatalf("full photo: %v", err)
+	}
+	thumb, _ := e.svc.ProductPhoto(e.ctx, injera, first, true)
+	if len(thumb) == 0 || len(thumb) >= len(full) {
+		t.Fatalf("thumb %d bytes, full %d", len(thumb), len(full))
+	}
+	// Customers see it on the shop page.
+	sh, err := e.svc.Shop(e.ctx, shop)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, x := range sh.Products {
+		found = found || (x.ID == injera && x.Photo == first)
+	}
+	if !found {
+		t.Fatal("shop page lacks the photo")
+	}
+
+	// A new photo replaces the old one, whose files are deleted and no longer served.
+	p, err = e.svc.SetProductPhoto(e.ctx, owner, shop, injera, testPNG(t, 300, 300))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Photo == first || len(store.files) != 2 {
+		t.Fatalf("after replacing: %q, %d files", p.Photo, len(store.files))
+	}
+	for _, id := range []string{first, "../../etc/passwd", "zz"} {
+		if _, err := e.svc.ProductPhoto(e.ctx, injera, id, false); !errors.Is(err, commerce.ErrNotFound) {
+			t.Errorf("serving %q: %v", id, err)
+		}
+	}
+
+	// Removing it leaves no files.
+	p, err = e.svc.RemoveProductPhoto(e.ctx, owner, shop, injera)
+	if err != nil || p.Photo != "" || len(store.files) != 0 {
+		t.Fatalf("after removing: %v %q %d files", err, p.Photo, len(store.files))
 	}
 }

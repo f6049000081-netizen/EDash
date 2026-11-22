@@ -275,6 +275,10 @@ class _ProductRow extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: G1.s4, vertical: G1.s3),
       child: Row(children: [
+        if (p.thumbUrl != null) ...[
+          ExcludeSemantics(child: ProductThumb(p)),
+          const SizedBox(width: G1.s3),
+        ],
         Expanded(
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(p.title, style: text.titleSmall),
@@ -299,6 +303,40 @@ class _ProductRow extends StatelessWidget {
             onRemove: onRemove,
           ),
       ]),
+    );
+  }
+}
+
+/// A product's photo from the API server, square with rounded corners; a plain tile when there's none
+/// or it can't load. Photos are public shop content, so no session is sent.
+class ProductThumb extends StatelessWidget {
+  const ProductThumb(this.product, {super.key, this.size = 56, this.full = false});
+  final Product product;
+  final double size;
+  final bool full; // the large photo rather than the thumbnail
+
+  @override
+  Widget build(BuildContext context) {
+    final c = G1.c(context);
+    final path = full ? product.photoUrl : product.thumbUrl;
+    final empty = Container(
+      width: size,
+      height: size,
+      color: c.surface2,
+      child: Icon(Icons.image_outlined, color: c.inkSubtle, size: size * 0.4),
+    );
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(G1.rS + 2),
+      child: path == null
+          ? empty
+          : Image.network(
+              AppScope.read(context).api.api.baseUrl + path,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              semanticLabel: product.title,
+              errorBuilder: (_, __, ___) => empty,
+            ),
     );
   }
 }

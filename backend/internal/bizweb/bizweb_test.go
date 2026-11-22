@@ -142,7 +142,8 @@ type browser struct {
 
 func (e *env) browser() *browser {
 	jar, _ := cookiejar.New(nil)
-	c := e.srv.Client()
+	c := new(http.Client)
+	*c = *e.srv.Client() // a copy: Client() returns the same one each time, and each browser needs its own cookies
 	c.Jar = jar
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	return &browser{e: e, c: c}

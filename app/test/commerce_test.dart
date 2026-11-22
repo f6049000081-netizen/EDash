@@ -294,6 +294,53 @@ void main() {
     await tester.pumpWidget(const SizedBox());
   });
 
+  testWidgets('an owner adds a product photo from the catalog, then removes it', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.5;
+    addTearDown(tester.view.reset);
+    var withPhoto = false;
+    Map<String, dynamic> berbere() => {
+          ...product('p1', 'Berbere 500 g', 18000, stock: 2),
+          'photo': withPhoto
+              ? {
+                  'id': 'a1b2c3d4e5f6a1b2c3d4e5f6',
+                  'url': '/v1/products/p1/photos/a1b2c3d4e5f6a1b2c3d4e5f6',
+                  'thumb_url': '/v1/products/p1/photos/a1b2c3d4e5f6a1b2c3d4e5f6?size=thumb'
+                }
+              : null,
+        };
+    final picked = <int>[0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3];
+    final seen = await pump(tester, CatalogScreen(merchant('owner'), pick: (_) async => picked), {
+      'GET /v1/merchants/m1/shop': (_) => json({
+            ...shopJson(),
+            'products': [berbere()]
+          }),
+      'PUT /v1/merchants/m1/products/p1/photo': (r) {
+        withPhoto = true;
+        return json(berbere());
+      },
+      'DELETE /v1/merchants/m1/products/p1/photo': (_) {
+        withPhoto = false;
+        return json(berbere());
+      },
+    });
+    await tester.tap(find.text('Berbere 500 g'));
+    await tester.pumpAndSettle();
+    expect(find.text('Remove photo'), findsNothing);
+    await tester.tap(find.text('Add photo'));
+    await tester.pumpAndSettle();
+    final put = seen.lastWhere((r) => r.method == 'PUT');
+    expect(put.url.path, '/v1/merchants/m1/products/p1/photo');
+    expect(put.bodyBytes, picked, reason: 'the picked photo is sent as the body');
+    expect(put.headers['content-type'], startsWith('image/jpeg'));
+    expect(find.text('Change photo'), findsOneWidget);
+    await tester.tap(find.text('Remove photo'));
+    await tester.pumpAndSettle();
+    expect(seen.map((r) => '${r.method} ${r.url.path}'), contains('DELETE /v1/merchants/m1/products/p1/photo'));
+    expect(find.text('Add photo'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('an accountant sees orders but cannot act on them', (tester) async {
     await pump(tester, ShopOrdersScreen(merchant('accountant')), {
       'GET /v1/merchants/m1/orders': (_) => json({

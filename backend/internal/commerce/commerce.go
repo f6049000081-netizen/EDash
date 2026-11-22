@@ -24,6 +24,7 @@ import (
 
 	"superapp/backend/internal/money"
 	"superapp/backend/internal/payments"
+	"superapp/backend/internal/photos"
 	"superapp/backend/internal/platform"
 )
 
@@ -33,6 +34,9 @@ type Service struct {
 
 	// PayWithin: orders not paid by then are cancelled (the customer left checkout).
 	PayWithin time.Duration
+	// Photos keeps product photos; nil: photos are off (no storage set up).
+	Photos photos.Store
+
 	// AcceptWithin: paid orders the shop hasn't accepted by then are cancelled and refunded.
 	AcceptWithin time.Duration
 	// RemindAfter: accepted orders not handed over this long after accepting remind the shop and the
@@ -125,6 +129,7 @@ type Product struct {
 	Price       money.Money
 	Stock       *int // nil: not counted
 	Status      string
+	Photo       string // the current photo's ID, or empty
 	UpdatedAt   time.Time
 }
 
@@ -191,7 +196,8 @@ func (s *Service) Shop(ctx context.Context, merchant uuid.UUID) (*Shop, error) {
 
 func (s *Service) products(ctx context.Context, db platform.DB, merchant uuid.UUID, all bool) ([]Product, error) {
 	rows, err := db.Query(ctx, `
-		SELECT id, title, COALESCE(description, ''), category, price_minor, currency, stock, status, updated_at
+		SELECT id, title, COALESCE(description, ''), category, price_minor, currency, stock, status,
+		       COALESCE(images[1], ''), updated_at
 		FROM commerce.products
 		WHERE merchant_id = $1 AND (status = 'active' OR ($2 AND status <> 'archived'))
 		ORDER BY category, title`, merchant, all)
@@ -201,7 +207,8 @@ func (s *Service) products(ctx context.Context, db platform.DB, merchant uuid.UU
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (Product, error) {
 		var p Product
 		var cur string
-		err := r.Scan(&p.ID, &p.Title, &p.Description, &p.Category, &p.Price.AmountMinor, &cur, &p.Stock, &p.Status, &p.UpdatedAt)
+		err := r.Scan(&p.ID, &p.Title, &p.Description, &p.Category, &p.Price.AmountMinor, &cur, &p.Stock, &p.Status, &p.Photo,
+			&p.UpdatedAt)
 		p.Price.Currency = money.Currency(cur)
 		return p, err
 	})
@@ -360,13 +367,20 @@ func (s *Service) UpdateProduct(ctx context.Context, user, merchant, id uuid.UUI
 	return s.product(ctx, merchant, id)
 }
 
+// ShopProduct returns one of a shop's products, hidden ones included. Callers check who may see it.
+func (s *Service) ShopProduct(ctx context.Context, merchant, id uuid.UUID) (*Product, error) {
+	return s.product(ctx, merchant, id)
+}
+
 func (s *Service) product(ctx context.Context, merchant, id uuid.UUID) (*Product, error) {
 	var p Product
 	var cur string
 	err := s.Pool.QueryRow(ctx, `
-		SELECT id, title, COALESCE(description, ''), category, price_minor, currency, stock, status, updated_at
+		SELECT id, title, COALESCE(description, ''), category, price_minor, currency, stock, status,
+		       COALESCE(images[1], ''), updated_at
 		FROM commerce.products WHERE id = $1 AND merchant_id = $2`, id, merchant).
-		Scan(&p.ID, &p.Title, &p.Description, &p.Category, &p.Price.AmountMinor, &cur, &p.Stock, &p.Status, &p.UpdatedAt)
+		Scan(&p.ID, &p.Title, &p.Description, &p.Category, &p.Price.AmountMinor, &cur, &p.Stock, &p.Status, &p.Photo,
+			&p.UpdatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}

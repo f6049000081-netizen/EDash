@@ -4,9 +4,10 @@
 <section class="card">
 {{if .Data.Products}}
 <div class="scroll"><table>
-  <thead><tr><th>{{.T "col_product"}}</th><th>{{.T "col_shelf"}}</th><th class="num">{{.T "col_price"}}</th><th class="num">{{.T "col_stock"}}</th><th>{{.T "col_status"}}</th></tr></thead>
+  <thead><tr><th><span class="sr">{{.T "photo"}}</span></th><th>{{.T "col_product"}}</th><th>{{.T "col_shelf"}}</th><th class="num">{{.T "col_price"}}</th><th class="num">{{.T "col_stock"}}</th><th>{{.T "col_status"}}</th></tr></thead>
   <tbody>{{range .Data.Products}}{{if ne .Status "archived"}}
   <tr>
+    <td class="thumbcell">{{if .Photo}}<img class="thumb" src="/business/products/{{.ID}}/photo/{{.Photo}}?size=thumb" alt="" width="48" height="48">{{else}}<span class="thumb none" aria-hidden="true"></span>{{end}}</td>
     <td>{{if $.S.Manages}}<a href="/business/products/{{.ID}}" class="strong">{{.Title}}</a>{{else}}<span class="strong">{{.Title}}</span>{{end}}</td>
     <td class="muted">{{.Category}}</td>
     <td class="num">{{etb .Price}}</td>

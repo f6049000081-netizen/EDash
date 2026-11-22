@@ -17,4 +17,18 @@
 </form>
 {{else}}<p class="muted">{{.T "manage_only"}}</p>{{end}}
 </section>
+{{if and .S.Manages $d.ID}}
+<section class="card narrow">
+  <h2>{{.T "photo"}}</h2>
+  {{if $d.Photo}}<img class="photo" src="/business/products/{{$d.ID}}/photo/{{$d.Photo}}" alt="{{$d.Title}}" width="320">{{else}}<p class="muted">{{.T "photo_none"}}</p>{{end}}
+  <form method="post" action="/business/products/{{$d.ID}}/photo" enctype="multipart/form-data" class="form">
+    <input type="hidden" name="csrf" value="{{.S.CSRF}}">
+    <label for="photo">{{if $d.Photo}}{{.T "photo_change"}}{{else}}{{.T "photo_add"}}{{end}}</label>
+    <input id="photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp" required aria-describedby="photo-help">
+    <p id="photo-help" class="muted">{{.T "photo_help"}}</p>
+    <div class="actions"><button class="btn">{{.T "photo_upload"}}</button>
+    {{if $d.Photo}}<button class="btn danger soft" name="remove" value="1" formnovalidate>{{.T "photo_remove"}}</button>{{end}}</div>
+  </form>
+</section>
+{{end}}
 {{end}}

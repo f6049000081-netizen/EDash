@@ -197,6 +197,13 @@ func run(log *slog.Logger) error {
 	if docs == nil {
 		log.Warn("document storage off (S3_ENDPOINT not set): merchants can't send KYB documents")
 	}
+	if pics, err := kyb.S3FromEnv(ctx, os.Getenv, "S3_PHOTOS_BUCKET", "product-photos"); err != nil {
+		return err
+	} else if pics != nil {
+		shops.Photos = pics
+	} else {
+		log.Warn("product photos off (S3_ENDPOINT not set)")
+	}
 
 	srv := &http.Server{
 		Addr: addr,

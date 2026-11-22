@@ -9,6 +9,7 @@ require (
 	github.com/minio/minio-go/v7 v7.0.80
 	github.com/twmb/franz-go v1.18.0
 	golang.org/x/crypto v0.32.0
+	golang.org/x/image v0.23.0
 	golang.org/x/oauth2 v0.24.0
 )
 

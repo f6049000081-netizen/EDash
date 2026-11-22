@@ -28,6 +28,7 @@ import (
 	"superapp/backend/internal/merchants"
 	"superapp/backend/internal/money"
 	"superapp/backend/internal/payouts"
+	"superapp/backend/internal/photos"
 )
 
 //go:embed web
@@ -94,6 +95,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /business/products/{id}", s.authed(s.productForm))
 	mux.Handle("POST /business/products", s.authed(s.productSave))
 	mux.Handle("POST /business/products/{id}", s.authed(s.productSave))
+	mux.Handle("POST /business/products/{id}/photo", s.authed(s.productPhoto))
+	mux.Handle("GET /business/products/{id}/photo/{photo}", s.authed(s.productPhotoFile))
 	mux.Handle("GET /business/storefront", s.authed(s.storefront))
 	mux.Handle("POST /business/storefront", s.authed(s.storefrontSave))
 	mux.Handle("POST /business/storefront/open", s.authed(s.storefrontOpen))
@@ -257,7 +260,11 @@ func (s *Server) authed(h func(http.ResponseWriter, *http.Request, *Session)) ht
 				http.Error(w, "Cross-site request refused.", http.StatusForbidden)
 				return
 			}
-			r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+			limit := int64(64 << 10)
+			if strings.HasSuffix(r.URL.Path, "/photo") {
+				limit += photos.MaxSize // a photo upload
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, limit)
 			if !tokensEqual(r.PostFormValue("csrf"), sess.CSRF) {
 				http.Error(w, translate(lang(r, sess), "m_expired_form"), http.StatusForbidden)
 				return

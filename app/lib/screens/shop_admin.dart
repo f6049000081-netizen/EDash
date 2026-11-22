@@ -11,6 +11,8 @@ import '../core/money.dart';
 import '../l10n/strings.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
+import 'business.dart' show PhotoPicker, pickDocumentPhoto;
+import 'shop.dart' show ProductThumb;
 
 String _problemText(BuildContext context, ApiProblem p) =>
     p.message.isNotEmpty ? p.message : S.of(context).t('error_generic');
@@ -347,8 +349,9 @@ class _CancelSheetState extends State<_CancelSheet> {
 
 /// The shop's catalog and ordering settings.
 class CatalogScreen extends StatefulWidget {
-  const CatalogScreen(this.merchant, {super.key});
+  const CatalogScreen(this.merchant, {super.key, this.pick = pickDocumentPhoto});
   final Merchant merchant;
+  final PhotoPicker pick; // camera or gallery; tests pass their own
 
   @override
   State<CatalogScreen> createState() => _CatalogScreenState();
@@ -404,8 +407,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
   }
 
   Future<void> _product([Product? p]) async {
-    final saved = await _sheet<Product>(context, _ProductSheet(merchantId: widget.merchant.id, product: p));
-    if (saved != null) _load();
+    await _sheet<Product>(context, _ProductSheet(merchantId: widget.merchant.id, product: p, pick: widget.pick));
+    _load(); // also after only the photo changed
   }
 
   @override
@@ -466,6 +469,7 @@ class _CatalogScreenState extends State<CatalogScreen> {
                     for (var i = 0; i < sh.products.length; i++) ...[
                       if (i > 0) const Divider(indent: G1.s4),
                       ListTile(
+                        leading: ExcludeSemantics(child: ProductThumb(sh.products[i], size: 44)),
                         title: Text(sh.products[i].title),
                         subtitle: Text([
                           if (sh.products[i].category.isNotEmpty) sh.products[i].category,
@@ -593,9 +597,10 @@ class _SettingsSheetState extends State<_SettingsSheet> {
 }
 
 class _ProductSheet extends StatefulWidget {
-  const _ProductSheet({required this.merchantId, this.product});
+  const _ProductSheet({required this.merchantId, this.product, required this.pick});
   final String merchantId;
   final Product? product;
+  final PhotoPicker pick;
 
   @override
   State<_ProductSheet> createState() => _ProductSheetState();
@@ -608,8 +613,34 @@ class _ProductSheetState extends State<_ProductSheet> {
   late final _price = TextEditingController(text: widget.product?.price.decimal ?? '');
   late final _stock = TextEditingController(text: widget.product?.stock?.toString() ?? '');
   late bool _hidden = widget.product?.status == 'hidden';
+  late Product? _current = widget.product; // follows photo changes, which are saved at once
   bool _busy = false;
+  bool _photoBusy = false;
   String? _error;
+
+  Future<void> _photo({bool remove = false}) async {
+    final api = AppScope.read(context).api;
+    final p = _current!;
+    List<int>? bytes;
+    if (!remove) {
+      bytes = await widget.pick(context);
+      if (bytes == null || !mounted) return;
+    }
+    setState(() {
+      _photoBusy = true;
+      _error = null;
+    });
+    try {
+      final updated = remove
+          ? await api.removeProductPhoto(widget.merchantId, p.id)
+          : await api.setProductPhoto(widget.merchantId, p.id, bytes!);
+      if (mounted) setState(() => _current = updated);
+    } on ApiProblem catch (e) {
+      if (mounted) setState(() => _error = _problemText(context, e));
+    } finally {
+      if (mounted) setState(() => _photoBusy = false);
+    }
+  }
 
   @override
   void dispose() {
@@ -667,6 +698,32 @@ class _ProductSheetState extends State<_ProductSheet> {
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Text(s.t(widget.product == null ? 'product_add' : 'product_edit'), style: text.titleLarge),
           const SizedBox(height: G1.s3),
+          if (_current != null) ...[
+            Row(children: [
+              ProductThumb(_current!, size: 72, full: true),
+              const SizedBox(width: G1.s3),
+              Expanded(
+                child: _photoBusy
+                    ? const Align(alignment: Alignment.centerLeft, child: CircularProgressIndicator())
+                    : Wrap(spacing: G1.s2, runSpacing: G1.s1, children: [
+                        OutlinedButton.icon(
+                          onPressed: _busy ? null : () => _photo(),
+                          icon: const Icon(Icons.add_a_photo_outlined, size: 18),
+                          label: Text(s.t(_current!.photoUrl == null ? 'photo_add' : 'photo_change')),
+                        ),
+                        if (_current!.photoUrl != null)
+                          TextButton(
+                            onPressed: _busy ? null : () => _photo(remove: true),
+                            child: Text(s.t('photo_remove')),
+                          ),
+                      ]),
+              ),
+            ]),
+            const SizedBox(height: G1.s3),
+          ] else ...[
+            Text(s.t('photo_after_save'), style: text.bodySmall),
+            const SizedBox(height: G1.s2),
+          ],
           TextField(controller: _title, maxLength: 80, decoration: InputDecoration(labelText: s.t('product_name'))),
           TextField(
             controller: _price,
