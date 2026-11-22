@@ -28,6 +28,7 @@ import (
 	"github.com/google/uuid"
 	"golang.org/x/oauth2"
 
+	"superapp/backend/internal/kyb"
 	"superapp/backend/internal/merchants"
 	"superapp/backend/internal/money"
 	"superapp/backend/internal/ops"
@@ -100,6 +101,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /ops/merchants", s.authed(s.merchantList))
 	mux.Handle("GET /ops/merchants/{id}", s.authed(s.merchantPage))
 	mux.Handle("POST /ops/merchants/{id}/action", s.authed(s.merchantAction))
+	mux.Handle("GET /ops/documents/{id}", s.authed(s.documentFile))
+	mux.Handle("POST /ops/documents/{id}/review", s.authed(s.documentReview))
 	mux.Handle("GET /ops/payouts", s.authed(s.payoutList))
 	mux.Handle("POST /ops/payouts/{id}/release", s.authed(s.payoutRelease))
 	mux.Handle("GET /ops/approvals", s.authed(s.approvalList))
@@ -309,18 +312,22 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request, sess *ops.Sessio
 
 // Messages shown after a form, by code (codes only in URLs, never free text).
 var messages = map[string]string{
-	"applied":     "Done.",
-	"requested":   "Sent for approval. Someone else with this permission has to approve it before it happens.",
-	"approved":    "Approved and applied.",
-	"rejected":    "Request rejected. Nothing changed.",
-	"forbidden":   "Your role doesn't allow that. The attempt was recorded.",
-	"own":         "You can't approve your own request. Someone else has to.",
-	"note":        "Write a note of at least 10 characters saying why.",
-	"duplicate":   "The same request is already waiting for approval.",
-	"decided":     "That request was already decided or has lapsed.",
-	"notfound":    "Not found.",
-	"conflict":    "That can't be done in the current state. Reload the page.",
-	"unavailable": "Something went wrong. Nothing was changed. Try again.",
+	"applied":      "Done.",
+	"requested":    "Sent for approval. Someone else with this permission has to approve it before it happens.",
+	"approved":     "Approved and applied.",
+	"rejected":     "Request rejected. Nothing changed.",
+	"forbidden":    "Your role doesn't allow that. The attempt was recorded.",
+	"own":          "You can't approve your own request. Someone else has to.",
+	"note":         "Write a note of at least 10 characters saying why.",
+	"duplicate":    "The same request is already waiting for approval.",
+	"decided":      "That request was already decided or has lapsed.",
+	"notfound":     "Not found.",
+	"conflict":     "That can't be done in the current state. Reload the page.",
+	"unavailable":  "Something went wrong. Nothing was changed. Try again.",
+	"doc_accepted": "Document accepted.",
+	"doc_rejected": "Document rejected. The owner was told why and can send a new one.",
+	"doc_decided":  "That document was already decided or replaced.",
+	"doc_note":     "Say why the document can't be accepted (at least 10 characters).",
 }
 
 func (s *Server) back(w http.ResponseWriter, r *http.Request, path, code string) {
@@ -440,7 +447,23 @@ func (s *Server) merchantPage(w http.ResponseWriter, r *http.Request, sess *ops.
 		s.serverError(w, r, err)
 		return
 	}
-	s.render(w, r, http.StatusOK, "merchant", sess, map[string]any{"M": m, "Pending": pending, "Payouts": pays, "Audit": audit})
+	data := map[string]any{"M": m, "Pending": pending, "Payouts": pays, "Audit": audit, "Docs": true}
+	if s.Ops.KYB == nil {
+		data["Docs"] = false
+	} else {
+		docs, err := s.Ops.KYB.ForMerchant(r.Context(), id)
+		if err != nil {
+			s.serverError(w, r, err)
+			return
+		}
+		missing, err := kyb.MissingTx(r.Context(), s.Ops.Pool, id)
+		if err != nil {
+			s.serverError(w, r, err)
+			return
+		}
+		data["Documents"], data["Missing"] = docs, missing
+	}
+	s.render(w, r, http.StatusOK, "merchant", sess, data)
 }
 
 func (s *Server) merchantAction(w http.ResponseWriter, r *http.Request, sess *ops.Session) {
@@ -453,6 +476,66 @@ func (s *Server) merchantAction(w http.ResponseWriter, r *http.Request, sess *op
 	out, err := s.Ops.Do(r.Context(), actor(r, sess.Staff), ops.Action{Kind: kind, Target: id, Note: r.PostFormValue("note")})
 	s.logUnexpected(r, err)
 	s.back(w, r, "/ops/merchants/"+id.String(), outcomeCode(out, err))
+}
+
+// documentFile shows a document to staff. It's served from our own origin, sandboxed, and never cached.
+func (s *Server) documentFile(w http.ResponseWriter, r *http.Request, sess *ops.Session) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil || s.Ops.KYB == nil {
+		http.NotFound(w, r)
+		return
+	}
+	d, data, err := s.Ops.OpenDocument(r.Context(), actor(r, sess.Staff), id)
+	switch {
+	case errors.Is(err, ops.ErrForbidden):
+		s.render(w, r, http.StatusForbidden, "forbidden", sess, nil)
+		return
+	case errors.Is(err, kyb.ErrNotFound):
+		http.NotFound(w, r)
+		return
+	case err != nil:
+		s.serverError(w, r, err)
+		return
+	}
+	h := w.Header()
+	h.Set("Content-Type", d.ContentType)
+	h.Set("Content-Security-Policy", "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox")
+	disposition := "inline"
+	if d.ContentType == "application/pdf" {
+		disposition = "attachment" // opened in the staff member's own PDF reader, not in the console's origin
+	}
+	ext := map[string]string{"image/jpeg": "jpg", "image/png": "png", "application/pdf": "pdf"}[d.ContentType]
+	h.Set("Content-Disposition", fmt.Sprintf(`%s; filename="%s-%s.%s"`, disposition, d.Kind, d.ID.String()[:8], ext))
+	_, _ = w.Write(data)
+}
+
+func (s *Server) documentReview(w http.ResponseWriter, r *http.Request, sess *ops.Session) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil || s.Ops.KYB == nil {
+		http.NotFound(w, r)
+		return
+	}
+	accept := r.PostFormValue("decision") == "accept"
+	d, err := s.Ops.ReviewDocument(r.Context(), actor(r, sess.Staff), id, accept, r.PostFormValue("note"))
+	var v *kyb.ValidationError
+	switch {
+	case err == nil:
+		s.back(w, r, "/ops/merchants/"+d.MerchantID.String(), map[bool]string{true: "doc_accepted", false: "doc_rejected"}[accept])
+	case errors.As(err, &v):
+		var merchant uuid.UUID
+		_ = s.Ops.Pool.QueryRow(r.Context(), `SELECT merchant_id FROM merchant.documents WHERE id = $1`, id).Scan(&merchant)
+		code := "doc_decided"
+		if !accept && strings.Contains(v.Msg, "why") {
+			code = "doc_note"
+		}
+		s.back(w, r, "/ops/merchants/"+merchant.String(), code)
+	case errors.Is(err, ops.ErrForbidden):
+		s.render(w, r, http.StatusForbidden, "forbidden", sess, nil)
+	case errors.Is(err, kyb.ErrNotFound):
+		http.NotFound(w, r)
+	default:
+		s.serverError(w, r, err)
+	}
 }
 
 func (s *Server) payoutList(w http.ResponseWriter, r *http.Request, sess *ops.Session) {
@@ -542,10 +625,12 @@ var labels = map[string]string{
 	"rejected_by_partner": "Rejected by the partner", "too_many_failures": "Kept failing",
 	"applied": "Applied", "kyb_review": "In review", "active": "Active", "suspended": "Suspended", "closed": "Closed",
 	"scheduled": "Scheduled", "sent": "Sent", "settled": "Paid", "on_hold": "On hold",
-	"allowed": "Allowed", "denied": "Denied", "pending": "Awaiting approval",
+	"allowed": "Allowed", "denied": "Denied", "pending": "Awaiting approval", "failed": "Didn't go through",
 	"approved": "Approved", "rejected": "Rejected", "lapsed": "Lapsed",
 	"staff.sign_in": "Signed in", "staff.sign_out": "Signed out", "staff.invite": "Invited staff",
 	"approval.approve": "Approved a request", "approval.reject": "Rejected a request",
+	"document.view": "Opened a document", "document.accept": "Accepted a document", "document.reject": "Rejected a document",
+	"submitted": "To check", "accepted": "Accepted", "replaced": "Replaced",
 }
 
 func (s *Server) parseTemplates() error {
@@ -565,6 +650,13 @@ func (s *Server) parseTemplates() error {
 		"etb":      func(m money.Money) string { return m.Display() },
 		"label":    func(k string) string { return or(labels[k], k) },
 		"category": func(c string) string { return or(merchants.Categories[c], c) },
+		"dockind":  func(k string) string { return or(kyb.Kinds[k], k) },
+		"size": func(n int) string {
+			if n >= 1<<20 {
+				return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
+			}
+			return fmt.Sprintf("%d KB", (n+1023)/1024)
+		},
 		"can": func(st *ops.Staff, kind string, at string) bool {
 			return st.Can(ops.Permission(kind), map[string]ops.Grant{"view": ops.View, "approve": ops.Approve, "full": ops.Full}[at])
 		},
@@ -572,11 +664,11 @@ func (s *Server) parseTemplates() error {
 		"short":       func(id uuid.UUID) string { return id.String()[:8] },
 		"pill": func(k string) string {
 			switch k {
-			case "active", "allowed", "approved", "settled":
+			case "active", "allowed", "approved", "settled", "accepted":
 				return "ok"
 			case "denied", "suspended", "rejected", "closed":
 				return "bad"
-			case "on_hold", "pending", "kyb_review", "applied", "lapsed":
+			case "on_hold", "pending", "kyb_review", "applied", "lapsed", "submitted", "failed":
 				return "warn"
 			}
 			return "info"

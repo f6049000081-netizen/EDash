@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
 import '../core/api.dart';
@@ -347,6 +348,10 @@ class _BusinessScreenState extends State<BusinessScreen> with WidgetsBindingObse
                 _ => [
                     _notice(context, Icons.hourglass_top, s.t('shop_review_title', {'shop': m.tradeName}),
                         s.t('shop_review_body')),
+                    if (m.role == 'owner' || m.role == 'manager') ...[
+                      const SizedBox(height: G1.s4),
+                      DocumentsCard(merchant: m),
+                    ],
                   ],
               },
           ]),
@@ -493,6 +498,147 @@ class _BusinessScreenState extends State<BusinessScreen> with WidgetsBindingObse
       'sent' => s.t('payout_sent'),
       _ => s.t('payout_waiting'),
     };
+  }
+}
+
+/// Picks a photo with the camera or from the gallery. Tests replace it.
+typedef PhotoPicker = Future<List<int>?> Function(BuildContext context);
+
+Future<List<int>?> pickDocumentPhoto(BuildContext context) async {
+  final s = S.of(context);
+  final source = await _sheet<ImageSource>(
+    context,
+    SafeArea(
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        ListTile(
+          leading: const Icon(Icons.photo_camera_outlined),
+          title: Text(s.t('doc_take_photo')),
+          onTap: () => Navigator.pop(context, ImageSource.camera),
+        ),
+        ListTile(
+          leading: const Icon(Icons.photo_library_outlined),
+          title: Text(s.t('doc_choose_photo')),
+          onTap: () => Navigator.pop(context, ImageSource.gallery),
+        ),
+        const SizedBox(height: G1.s3),
+      ]),
+    ),
+  );
+  if (source == null) return null;
+  // Large enough to read every line of a certificate, small enough to send over a slow connection.
+  final file = await ImagePicker().pickImage(source: source, maxWidth: 2400, maxHeight: 2400, imageQuality: 85);
+  return file?.readAsBytes();
+}
+
+/// The documents an application needs, with what happened to each, while it's under review.
+class DocumentsCard extends StatefulWidget {
+  const DocumentsCard({super.key, required this.merchant, this.pick = pickDocumentPhoto});
+  final Merchant merchant;
+  final PhotoPicker pick;
+
+  @override
+  State<DocumentsCard> createState() => _DocumentsCardState();
+}
+
+class _DocumentsCardState extends State<DocumentsCard> {
+  MerchantDocuments? _docs;
+  ApiProblem? _problem;
+  String? _sending; // the kind being sent
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  Future<void> _load() async {
+    try {
+      final d = await AppScope.read(context).api.documents(widget.merchant.id);
+      if (mounted) {
+        setState(() {
+          _docs = d;
+          _problem = null;
+        });
+      }
+    } on ApiProblem catch (p) {
+      if (mounted) setState(() => _problem = p);
+    }
+  }
+
+  Future<void> _send(String kind) async {
+    final s = S.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final api = AppScope.read(context).api;
+    final bytes = await widget.pick(context);
+    if (bytes == null || !mounted) return;
+    setState(() => _sending = kind);
+    try {
+      await api.uploadDocument(widget.merchant.id, kind, bytes);
+      messenger.showSnackBar(SnackBar(content: Text(s.t('doc_sent'))));
+      await _load();
+    } on ApiProblem catch (p) {
+      messenger.showSnackBar(SnackBar(content: Text(p.message.isNotEmpty ? p.message : s.t('error_generic'))));
+    } finally {
+      if (mounted) setState(() => _sending = null);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = S.of(context);
+    final c = G1.c(context);
+    final text = Theme.of(context).textTheme;
+    final docs = _docs;
+    final owner = widget.merchant.isOwner;
+    return Container(
+      decoration: BoxDecoration(
+          color: c.surface1, borderRadius: BorderRadius.circular(G1.rL), border: Border.all(color: c.line)),
+      padding: const EdgeInsets.symmetric(vertical: G1.s3),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: G1.s4),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(s.t('docs_title'), style: text.titleMedium),
+            const SizedBox(height: G1.s1),
+            Text(owner ? s.t('docs_intro') : s.t('docs_owner_only'), style: text.bodySmall),
+          ]),
+        ),
+        if (_problem != null)
+          Padding(
+            padding: const EdgeInsets.all(G1.s4),
+            child: ProblemBanner(_problem!, onRetry: _load),
+          )
+        else if (docs == null)
+          const Padding(padding: EdgeInsets.all(G1.s4), child: Center(child: CircularProgressIndicator()))
+        else
+          for (final kind in docs.required) _row(context, kind, docs.latest(kind), owner),
+      ]),
+    );
+  }
+
+  Widget _row(BuildContext context, String kind, MerchantDocument? d, bool owner) {
+    final s = S.of(context);
+    final c = G1.c(context);
+    final (icon, color, status) = switch (d?.status) {
+      'accepted' => (Icons.check_circle, c.success, s.t('doc_accepted')),
+      'rejected' => (Icons.error, c.danger, s.t('doc_rejected', {'reason': d!.reviewNote ?? ''})),
+      'submitted' => (Icons.schedule, c.brand, s.t('doc_submitted')),
+      _ => (Icons.radio_button_unchecked, c.inkMuted, s.t('doc_missing')),
+    };
+    final Widget? action = !owner || d?.status == 'accepted'
+        ? null
+        : _sending == kind
+            ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.5))
+            : TextButton(
+                onPressed: _sending == null ? () => _send(kind) : null,
+                child: Text(d == null ? s.t('doc_add') : s.t('doc_replace')),
+              );
+    return ListTile(
+      leading: Icon(icon, color: color),
+      title: Text(s.t('doc_$kind')),
+      subtitle: Text(status),
+      trailing: action,
+    );
   }
 }
 

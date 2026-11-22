@@ -2,6 +2,8 @@ package ops_test
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -13,6 +15,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"superapp/backend/internal/kyb"
+	"superapp/backend/internal/kyb/kybtest"
 	"superapp/backend/internal/ledger"
 	"superapp/backend/internal/merchants"
 	"superapp/backend/internal/ops"
@@ -195,7 +199,7 @@ func TestSuspendNeedsASecondPerson(t *testing.T) {
 	if told != reason {
 		t.Errorf("merchant told %q", told)
 	}
-	want := "[merchant.suspend:pending approval.approve:denied approval.approve:denied approval.approve:allowed]"
+	want := "[merchant.reinstate:failed merchant.suspend:pending merchant.suspend:failed approval.approve:denied approval.approve:denied approval.approve:allowed]"
 	if got := fmt.Sprint(e.auditResults(shop)); got != want {
 		t.Errorf("audit: %s", got)
 	}
@@ -323,5 +327,58 @@ func TestSessionsAndSignIn(t *testing.T) {
 	e.exec(`UPDATE admin.staff SET status = 'suspended' WHERE id = $1`, id)
 	if _, err := e.svc.SessionFrom(e.ctx, token); !errors.Is(err, ops.ErrForbidden) {
 		t.Errorf("suspended staff: %v", err)
+	}
+}
+
+func TestApprovalWaitsForAcceptedDocuments(t *testing.T) {
+	e := setup(t)
+	key := make([]byte, 32)
+	_, _ = rand.Read(key)
+	sealer, _ := kyb.ParseKeys("k1:" + base64.StdEncoding.EncodeToString(key))
+	e.svc.KYB = &kyb.Service{Pool: pool, Store: kybtest.NewMemStore(), Sealer: sealer}
+	shop := e.merchant("kyb_review")
+	var owner uuid.UUID
+	_ = pool.QueryRow(e.ctx, `SELECT user_id FROM merchant.members WHERE merchant_id = $1`, shop).Scan(&owner)
+	yonas := e.staff("yonas", "merchant_ops")
+	support := e.staff("hana", "support_agent")
+	approve := ops.Action{Kind: "merchant.approve", Target: shop, Note: "TIN and licence checked with the registries"}
+
+	var c *merchants.ConflictError
+	if _, err := e.svc.Do(e.ctx, yonas, approve); !errors.As(err, &c) || c.Msg != "Accept these documents first: TIN certificate, Owner's ID (Fayda, kebele ID or passport)." {
+		t.Fatalf("approve without documents: %v", err)
+	}
+	tin, _ := e.svc.KYB.Upload(e.ctx, owner, shop, "tin_certificate", kybtest.Photo(uuid.NewString()))
+	id, _ := e.svc.KYB.Upload(e.ctx, owner, shop, "owner_id", kybtest.Photo(uuid.NewString()))
+
+	// Support staff can't open or decide documents; refusals are recorded.
+	if _, _, err := e.svc.OpenDocument(e.ctx, support, tin.ID); !errors.Is(err, ops.ErrForbidden) {
+		t.Errorf("support opened a document: %v", err)
+	}
+	if _, err := e.svc.ReviewDocument(e.ctx, support, tin.ID, true, ""); !errors.Is(err, ops.ErrForbidden) {
+		t.Errorf("support accepted a document: %v", err)
+	}
+	if _, data, err := e.svc.OpenDocument(e.ctx, yonas, tin.ID); err != nil || len(data) != tin.Size {
+		t.Fatalf("open: %v", err)
+	}
+	for _, d := range []uuid.UUID{tin.ID, id.ID} {
+		if _, err := e.svc.ReviewDocument(e.ctx, yonas, d, true, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if out, err := e.svc.Do(e.ctx, yonas, approve); err != nil || !out.Applied || e.status(shop) != "active" {
+		t.Fatalf("approve: %v %+v %s", err, out, e.status(shop))
+	}
+	var got []string
+	rows, _ := pool.Query(e.ctx, `SELECT action || ':' || result FROM admin.audit_log
+		WHERE target_id = $1 OR detail->>'merchant_id' = $1::text OR target_id IN ($2, $3) ORDER BY id`, shop, tin.ID, id.ID)
+	for rows.Next() {
+		var s string
+		_ = rows.Scan(&s)
+		got = append(got, s)
+	}
+	want := []string{"merchant.approve:failed", "document.view:denied", "document.accept:denied", "document.view:allowed",
+		"document.accept:allowed", "document.accept:allowed", "merchant.approve:allowed"}
+	if fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("audit\n got %v\nwant %v", got, want)
 	}
 }

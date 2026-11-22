@@ -62,6 +62,25 @@ Future<List<String>> pumpShop(WidgetTester tester, Map<String, dynamic> merchant
                 'next_cursor': null,
               }),
             '/v1/merchants/m1/payout-destination' => json({'code': 'not_found', 'title': 'Not found'}, 404),
+            '/v1/merchants/m1/documents' => json({
+                'items': [
+                  {
+                    'id': 'd1',
+                    'kind': 'tin_certificate',
+                    'status': 'accepted',
+                    'uploaded_at': '2026-11-21T08:00:00Z',
+                    'review_note': null
+                  },
+                  {
+                    'id': 'd2',
+                    'kind': 'owner_id',
+                    'status': 'rejected',
+                    'uploaded_at': '2026-11-21T08:01:00Z',
+                    'review_note': 'The photo is blurry.'
+                  },
+                ],
+                'required': ['tin_certificate', 'trade_licence', 'owner_id'],
+              }),
             _ => json({'code': 'not_found'}, 404),
           };
         }),
@@ -121,5 +140,53 @@ void main() {
     expect(find.text('Show my QR'), findsNothing);
     expect(seen, isNot(contains('/v1/merchants/m1/summary')));
     await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('the owner sees what each document needs while the application is reviewed', (tester) async {
+    await pumpShop(tester, shop('owner', status: 'kyb_review'));
+    expect(find.text('TIN certificate'), findsOneWidget);
+    expect(find.text('Accepted'), findsOneWidget);
+    expect(find.text('Trade licence'), findsOneWidget);
+    expect(find.text('Not sent yet'), findsOneWidget);
+    expect(find.text('Add photo'), findsOneWidget);
+    expect(find.text('Send a new photo. The photo is blurry.'), findsOneWidget);
+    expect(find.text('Replace'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  testWidgets('a manager sees the documents but cannot send them', (tester) async {
+    await pumpShop(tester, shop('manager', status: 'kyb_review'));
+    expect(find.text('Only the owner can send documents.'), findsOneWidget);
+    expect(find.text('Add photo'), findsNothing);
+    expect(find.text('Replace'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+  });
+
+  test('a document goes up as the raw photo, typed by its content', () async {
+    late http.Request sent;
+    final api = GebeyaApi(Api(
+      baseUrl: 'http://api',
+      store: MemoryTokenStore(),
+      client: MockClient((r) async {
+        sent = r;
+        return json({
+          'id': 'd3',
+          'kind': 'owner_id',
+          'status': 'submitted',
+          'uploaded_at': '2026-11-22T08:00:00Z',
+          'review_note': null
+        }, 201);
+      }),
+    ));
+    await api.api.setTokens(Tokens('at', 'rt', 'u1', DateTime.now().add(const Duration(minutes: 10))));
+    final jpeg = [0xFF, 0xD8, 0xFF, 0xE0, 1, 2, 3];
+    final d = await api.uploadDocument('m1', 'owner_id', jpeg);
+    expect(d.status, 'submitted');
+    expect(sent.method, 'POST');
+    expect(sent.url.path, '/v1/merchants/m1/documents');
+    expect(sent.url.queryParameters['kind'], 'owner_id');
+    expect(sent.headers['Content-Type'], 'image/jpeg');
+    expect(sent.bodyBytes, jpeg);
+    expect(imageType([0x89, 0x50, 0x4E, 0x47]), 'image/png');
   });
 }

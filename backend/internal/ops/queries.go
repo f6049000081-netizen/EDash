@@ -202,7 +202,7 @@ func (s *Service) Audit(ctx context.Context, target uuid.UUID, limit int) ([]Aud
 		       COALESCE(l.target_type, ''), COALESCE(l.target_id::text, ''), l.result, COALESCE(l.device, ''),
 		       COALESCE(host(l.ip), ''), COALESCE(l.detail->>'note', '')
 		FROM admin.audit_log l LEFT JOIN admin.staff st ON st.id = l.actor_id
-		WHERE ($1 = '00000000-0000-0000-0000-000000000000'::uuid OR l.target_id = $1)
+		WHERE ($1 = '00000000-0000-0000-0000-000000000000'::uuid OR l.target_id = $1 OR l.detail->>'merchant_id' = $1::text)
 		ORDER BY l.id DESC LIMIT $2`, target, limit)
 	if err != nil {
 		return nil, err

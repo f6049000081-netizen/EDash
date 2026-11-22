@@ -107,6 +107,21 @@ QR payments split the amount three ways: debit the payer, credit the merchant se
 - **Payers** appear by first name and last initial ("Abebe K.").
 - **"Today"** is the day in Addis Ababa.
 
+## KYB documents
+
+`internal/kyb`: the documents a business sends to be verified.
+
+- **Sending** (`POST /v1/merchants/{id}/documents?kind=…`, owner only). The body is the file itself, at most 10 MB.
+  - The server goes by the file's first bytes, not the Content-Type: only JPEG, PNG and PDF are taken.
+  - Sending the same file again returns the stored document, so retries are safe. A new document of a kind replaces the earlier ones of that kind.
+  - Kinds: `tin_certificate`, `trade_licence`, `owner_id`, `other`. An application needs the TIN certificate and the owner's ID accepted, plus the trade licence when it gave a licence number (`GET …/documents` returns this as `required`).
+- **Storage.** Files are encrypted with AES-256-GCM before they leave the server, bound to their object key, then kept in any S3-compatible store.
+  - A leaked bucket reveals nothing, and a file moved to another key won't open. The SHA-256 of each file is checked when it's read back.
+  - Keys rotate: `DOCS_KEYS=new:…,old:…` encrypts with the first and still reads the others. Each document records the key it used.
+  - Settings: `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_REGION`, `DOCS_KEYS` (both servers). Without `S3_ENDPOINT`, document endpoints answer 503 `documents_unavailable` and the console approves without checking documents.
+  - **Choosing the production store** is still open: a provider hosted in Ethiopia if data residency rules require it, otherwise a cloud bucket in the nearest region, with versioning and no public access.
+- **Review** happens in the operations console (below): staff open each document there, every opening is recorded, and they accept or reject it. A rejection tells the owner what to resend and why.
+
 ## Merchant payouts
 
 - **Batching** (`internal/payouts`, run every 5 minutes by the API server). On each merchant's schedule, a payout collects the QR sales not yet paid out: up to midnight Addis Ababa time for `daily`, Monday midnight for `weekly`, everything for `instant`. Balances under ETB 10 carry over.
@@ -140,12 +155,13 @@ A separate server (`cmd/ops`, port 8090) with server-rendered pages for staff (`
   - Someone else with the grant decides it, with their own note. Nobody decides their own request; the database refuses it too.
   - Requests lapse after 72 hours. The same request can't be pending twice.
 - **Actions.**
-  - Approve: as in Merchants above. Reject: the application is closed and the TIN can be used again.
+  - Approve: as in Merchants above, once the required documents are accepted. Reject: the application is closed and the TIN can be used again.
+  - Documents: staff who can approve applications accept or reject each one directly; the approval is what needs the second person.
   - Suspend: the QR stops working and payouts are held (`merchant_suspended`); the money stays reserved. Reinstate: those payouts are scheduled again.
   - Release: only payouts held for a partner rejection or repeated failures, and only to a current payout account. The attempt count starts again.
   - The owner is notified of a rejection, suspension or reinstatement, with the reason staff wrote.
-- **Audit log.** Every attempt is recorded, including refused ones and sign-ins, with role, IP and device. Rows are hash-chained and can't be updated or deleted; the audit page checks the whole chain.
-- **Not built yet:** KYB document upload (needs object storage), risk cases, staff management in the console (use `devtool invite-staff` for now), and reversing failed payouts.
+- **Audit log.** Every attempt is recorded, with role, IP and device: sign-ins, document openings, refusals (`denied`), and allowed actions the rules stopped, such as approving with documents missing (`failed`, with the reason). Rows are hash-chained and can't be updated or deleted; the audit page checks the whole chain.
+- **Not built yet:** risk cases, staff management in the console (use `devtool invite-staff` for now), and reversing failed payouts.
 
 ### Run it locally
 
@@ -316,6 +332,7 @@ curl -X POST localhost:8080/v1/auth/otp/verify -H 'Content-Type: application/jso
 - **Settings:** they come from `backend/.env`, which git ignores. It holds `APP_ENV=dev`, `DATABASE_URL=postgres://postgres:test@g1db:5432/g1dev` and two random base64 32-byte keys, `AUTH_SIGNING_KEY` and `OTP_HMAC_KEY`. Keeping the keys there means sessions survive restarts.
 - **First time:** create the database with `CREATE DATABASE g1dev`, then load `db/schema.sql` into it.
 - **Sign-in codes:** they aren't sent in dev. Read them with `docker logs -f g1api 2>&1 | grep "dev sms"`. The dev `.env` also sets `OTP_RESEND_SECONDS=60` and `OTP_HOURLY_MAX=1000`, so testers aren't locked out by the production throttle (5 codes per number per hour).
+- **Document storage:** `run-dev.sh` and `run-ops-dev.sh` call `dev-storage.sh`. It starts SeaweedFS, an S3-compatible store, in the `g1s3` container (files in the `g1s3data` volume). On first run it writes `backend/.s3/` (git-ignored) with random credentials and a document key. The S3 test runs when `TEST_S3_ENDPOINT=g1s3:8333`, `TEST_S3_ACCESS_KEY` and `TEST_S3_SECRET_KEY` are set (values in `.s3/docs.env`).
 - **Kafka (optional):** to run the relay through Kafka instead of in-process, start a broker on `g1net` (see `internal/outbox/relay_test.go` for a single-node `apache/kafka-native:3.8.0` setup) and add `KAFKA_BROKERS=g1kafka:9092` to `.env`. The Kafka test runs when `TEST_KAFKA_BROKERS` is set.
 - **Test money:** `./dev-topup.sh +2519XXXXXXXX 500 ["Name"]` adds sandbox money to that number, creating the account if needed. The money is recorded under its own `sandbox` source and shows in activity as "Test money (sandbox)", never as a real provider. The endpoint exists only on the dev server.
 - **Phones:** a phone reaches the API at the PC's address on the local network, so build the app with that address in `API_BASE_URL`. On a network Windows marks as Public, inbound port 8080 may need a firewall rule.
@@ -341,5 +358,6 @@ curl -X POST localhost:8080/v1/auth/otp/verify -H 'Content-Type: application/jso
 - **Device keys in the app:** the server side of DPoP and biometric confirmation is done; the app still has to create the hardware keys and send proofs. Then switch on `DPOP_REQUIRED`.
 - **Key attestation:** check Android key attestation and App Attest so the server knows the DPoP and biometric keys really live in secure hardware.
 - **Payout partner:** connect a licensed payout rail (telebirr B2C, EthSwitch) once credentials exist, and add reversing failed payouts to the operations console.
-- **Operations console:** KYB document upload (choose object storage first), risk cases, staff management with maker-checker, and connecting the company identity provider with hardware-key MFA.
+- **Operations console:** risk cases, staff management with maker-checker, and connecting the company identity provider with hardware-key MFA.
+- **Document storage for production:** choose the provider (see KYB documents), then set `S3_*` and `DOCS_KEYS` from the secrets manager. Add malware scanning of uploads before staff open them.
 - **Orders and bills** in the activity feed, once those modules exist.

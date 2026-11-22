@@ -746,6 +746,59 @@ paths:
         '404': { $ref: '#/components/responses/Problem' }
         '409': { $ref: '#/components/responses/Problem' }
 
+  /v1/merchants/{id}/documents:
+    get:
+      tags: [Merchants]
+      summary: KYB documents sent for the shop
+      description: |
+        Owners and managers. Replaced documents are left out. `required` lists the kinds the application
+        needs accepted before operations can approve it.
+      operationId: listMerchantDocuments
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200':
+          description: Documents
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, required]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/MerchantDocument' } }
+                  required: { type: array, items: { $ref: '#/components/schemas/DocumentKind' } }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+    post:
+      tags: [Merchants]
+      summary: Send a KYB document
+      description: |
+        Owner only. The body is the file itself (at most 10 MB). The server goes by the file's content, not
+        the Content-Type: only JPEG, PNG and PDF are taken. Sending the same file again returns the stored
+        document, so a retry is safe. A new document of a kind replaces the earlier ones of that kind (except
+        `other`). Files are encrypted before storage. 503 `documents_unavailable` when storage isn't set up.
+      operationId: uploadMerchantDocument
+      parameters:
+        - { $ref: '#/components/parameters/Id' }
+        - { name: kind, in: query, required: true, schema: { $ref: '#/components/schemas/DocumentKind' } }
+      requestBody:
+        required: true
+        content:
+          image/jpeg: { schema: { type: string, format: binary } }
+          image/png: { schema: { type: string, format: binary } }
+          application/pdf: { schema: { type: string, format: binary } }
+      responses:
+        '201':
+          description: Stored, waiting for review
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MerchantDocument' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '413': { $ref: '#/components/responses/Problem' }
+        '422': { $ref: '#/components/responses/Problem' }
+        '503': { $ref: '#/components/responses/Problem' }
+
   /v1/merchants/{id}/payments:
     get:
       tags: [Merchants]
@@ -1244,6 +1297,21 @@ components:
             amount: { $ref: '#/components/schemas/Money' }
             due_date: { type: string, format: date }
             status: { type: string, enum: [due, paid, overdue] }
+    DocumentKind:
+      type: string
+      enum: [tin_certificate, trade_licence, owner_id, other]
+    MerchantDocument:
+      type: object
+      required: [id, kind, content_type, size_bytes, status, uploaded_at, reviewed_at, review_note]
+      properties:
+        id: { type: string, format: uuid }
+        kind: { $ref: '#/components/schemas/DocumentKind' }
+        content_type: { type: string, enum: [image/jpeg, image/png, application/pdf] }
+        size_bytes: { type: integer }
+        status: { type: string, enum: [submitted, accepted, rejected] }
+        uploaded_at: { type: string, format: date-time }
+        reviewed_at: { type: [string, 'null'], format: date-time }
+        review_note: { type: [string, 'null'], description: Why it was rejected; shown to the owner }
     Merchant:
       type: object
       properties:

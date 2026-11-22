@@ -29,7 +29,7 @@
     {{end}}
     {{if or (eq $m.Status "kyb_review") (eq $m.Status "applied")}}
       {{if can $st "merchant.approve" "approve"}}
-      <p class="muted">Before approving, check the TIN with the Ministry of Revenues and the trade licence with the Ministry of Trade, and that the applicant is the owner or authorised by them. Document upload isn't built yet: ask the applicant for photos through support.</p>
+      <p class="muted">Before approving, check the TIN with the Ministry of Revenues and the trade licence with the Ministry of Trade, and that the applicant is the owner or authorised by them. Accept the documents below first.</p>
       <form method="post" action="/ops/merchants/{{$m.ID}}/action" class="stack">
         <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="kind" value="merchant.approve">
         <label for="approve-note">What you checked</label>
@@ -65,6 +65,37 @@
     {{else}}<p class="muted">This merchant is closed.</p>{{end}}
   </section>
 </div>
+
+{{if .Data.Docs}}
+<section class="card">
+  <h2>Documents</h2>
+  {{if .Data.Missing}}<p class="note">Still to accept before approval: {{range $i, $k := .Data.Missing}}{{if $i}}, {{end}}{{dockind $k}}{{end}}.</p>{{end}}
+  {{if .Data.Documents}}
+  {{range .Data.Documents}}
+  <article class="req">
+    <div class="req-head">
+      <strong>{{dockind .Kind}}</strong>
+      <span class="pill {{pill .Status}}">{{label .Status}}</span>
+      <span class="muted">{{when .UploadedAt}} · {{size .Size}}</span>
+      {{if ne .Status "replaced"}}<a href="/ops/documents/{{.ID}}" target="_blank" rel="noopener noreferrer">Open{{if eq .ContentType "application/pdf"}} (PDF download){{end}}</a>{{end}}
+    </div>
+    {{if .ReviewNote}}<p class="quote">{{.ReviewNote}}</p>{{end}}
+    {{if and (eq .Status "submitted") (can $st "merchant.approve" "approve")}}
+    <form method="post" action="/ops/documents/{{.ID}}/review" class="stack">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <label for="doc-note-{{.ID}}">If you reject it, say why (the owner sees this)</label>
+      <textarea id="doc-note-{{.ID}}" name="note" maxlength="1000" rows="2"></textarea>
+      <div class="row">
+        <button class="primary" name="decision" value="accept">Accept</button>
+        <button class="danger" name="decision" value="reject">Reject</button>
+      </div>
+    </form>
+    {{end}}
+  </article>
+  {{end}}
+  {{else}}<p class="muted">The owner hasn't sent any documents yet. They add them in the app, under Profile → Business.</p>{{end}}
+</section>
+{{end}}
 
 <section class="card">
   <h2>Payouts</h2>

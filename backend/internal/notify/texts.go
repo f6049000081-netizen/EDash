@@ -7,6 +7,14 @@ import "strings"
 // translators supply them (the same gap as the SMS text, listed in backend/README.md).
 var texts = map[string]map[string]string{
 	"en": {
+		"document_rejected_tin_certificate.title":  "{shop}: send the TIN certificate again",
+		"document_rejected_tin_certificate.body":   "We couldn't accept it. {reason} Add a new photo in Profile → Business.",
+		"document_rejected_trade_licence.title":    "{shop}: send the trade licence again",
+		"document_rejected_trade_licence.body":     "We couldn't accept it. {reason} Add a new photo in Profile → Business.",
+		"document_rejected_owner_id.title":         "{shop}: send your ID again",
+		"document_rejected_owner_id.body":          "We couldn't accept it. {reason} Add a new photo in Profile → Business.",
+		"document_rejected.title":                  "{shop}: a document needs replacing",
+		"document_rejected.body":                   "We couldn't accept it. {reason} Add a new one in Profile → Business.",
 		"merchant_rejected.title":                  "{shop} wasn't approved",
 		"merchant_rejected.body":                   "Reason: {reason} You can apply again with corrected details.",
 		"merchant_suspended.title":                 "{shop} is paused",
@@ -55,6 +63,14 @@ var texts = map[string]map[string]string{
 		"payout_destination_changed.body":          "Payouts for {shop} will go to {destination} from {when}. If you didn't make this change, contact support now.",
 	},
 	"am": {
+		"document_rejected_tin_certificate.title":  "{shop}፦ የግብር ከፋይ መለያ (TIN) ሰርተፊኬቱን እንደገና ይላኩ",
+		"document_rejected_tin_certificate.body":   "መቀበል አልቻልንም። {reason} በመገለጫ → ንግድ ውስጥ አዲስ ፎቶ ያክሉ።",
+		"document_rejected_trade_licence.title":    "{shop}፦ የንግድ ፈቃዱን እንደገና ይላኩ",
+		"document_rejected_trade_licence.body":     "መቀበል አልቻልንም። {reason} በመገለጫ → ንግድ ውስጥ አዲስ ፎቶ ያክሉ።",
+		"document_rejected_owner_id.title":         "{shop}፦ መታወቂያዎን እንደገና ይላኩ",
+		"document_rejected_owner_id.body":          "መቀበል አልቻልንም። {reason} በመገለጫ → ንግድ ውስጥ አዲስ ፎቶ ያክሉ።",
+		"document_rejected.title":                  "{shop}፦ አንድ ሰነድ መተካት አለበት",
+		"document_rejected.body":                   "መቀበል አልቻልንም። {reason} በመገለጫ → ንግድ ውስጥ አዲስ ያክሉ።",
 		"merchant_rejected.title":                  "{shop} አልተፈቀደም",
 		"merchant_rejected.body":                   "ምክንያት፦ {reason} ዝርዝሩን አስተካክለው እንደገና ማመልከት ይችላሉ።",
 		"merchant_suspended.title":                 "{shop} ለጊዜው ቆሟል",

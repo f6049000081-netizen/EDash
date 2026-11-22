@@ -26,6 +26,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"superapp/backend/internal/kyb"
 	"superapp/backend/internal/merchants"
 	"superapp/backend/internal/payouts"
 )
@@ -89,6 +90,7 @@ type Service struct {
 	Pool      *pgxpool.Pool
 	Merchants *merchants.Service
 	Payouts   *payouts.Service
+	KYB       *kyb.Service // nil: no documents (approval then doesn't check them)
 	Now       func() time.Time
 	// ApprovalTTL is how long a request waits for a second person before it lapses.
 	ApprovalTTL time.Duration
@@ -206,6 +208,7 @@ func (s *Service) Do(ctx context.Context, a Actor, act Action) (Outcome, error) 
 			}
 			return s.audit(ctx, tx, a, act.Kind, actionTarget[act.Kind], act.Target, "allowed", detail)
 		})
+		s.failed(ctx, a, act.Kind, act.Target, detail, err)
 		return Outcome{Applied: err == nil}, err
 	case Approve:
 		var id uuid.UUID
@@ -243,6 +246,7 @@ func (s *Service) Do(ctx context.Context, a Actor, act Action) (Outcome, error) 
 			detail["approval_id"] = id
 			return s.audit(ctx, tx, a, act.Kind, actionTarget[act.Kind], act.Target, "pending", detail)
 		})
+		s.failed(ctx, a, act.Kind, act.Target, detail, err)
 		return Outcome{ApprovalID: id}, err
 	default:
 		s.denied(ctx, a, act.Kind, actionTarget[act.Kind], act.Target, detail)
@@ -337,6 +341,21 @@ func (s *Service) denied(ctx context.Context, a Actor, action, targetType string
 	})
 }
 
+// failed records an allowed action that the rules refused (wrong state, missing documents, a duplicate
+// request), so the log shows every attempt and not only the ones that went through.
+func (s *Service) failed(ctx context.Context, a Actor, kind string, target uuid.UUID, detail map[string]any, err error) {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return
+	}
+	d := map[string]any{"error": err.Error()}
+	for k, v := range detail {
+		d[k] = v
+	}
+	_ = pgx.BeginFunc(context.WithoutCancel(ctx), s.Pool, func(tx pgx.Tx) error {
+		return s.audit(ctx, tx, a, kind, actionTarget[kind], target, "failed", d)
+	})
+}
+
 func (s *Service) apply(ctx context.Context, tx pgx.Tx, staff uuid.UUID, act Action) error {
 	switch act.Kind {
 	case "merchant.approve":
@@ -349,6 +368,19 @@ func (s *Service) apply(ctx context.Context, tx pgx.Tx, staff uuid.UUID, act Act
 		}
 		if status != "applied" && status != "kyb_review" {
 			return &merchants.ConflictError{Msg: "Only applications under review can be approved; this merchant is " + status + "."}
+		}
+		if s.KYB != nil {
+			missing, err := kyb.MissingTx(ctx, tx, act.Target)
+			if err != nil {
+				return err
+			}
+			if len(missing) > 0 {
+				names := make([]string, len(missing))
+				for i, k := range missing {
+					names[i] = kyb.Kinds[k]
+				}
+				return &merchants.ConflictError{Msg: "Accept these documents first: " + strings.Join(names, ", ") + "."}
+			}
 		}
 		return s.Merchants.ApproveTx(ctx, tx, act.Target, staff)
 	case "merchant.reject":
@@ -364,6 +396,52 @@ func (s *Service) apply(ctx context.Context, tx pgx.Tx, staff uuid.UUID, act Act
 		return s.Payouts.ReleaseTx(ctx, tx, act.Target)
 	}
 	return fmt.Errorf("ops: unknown action %q", act.Kind)
+}
+
+// ---------------------------------------------------------------------------
+// KYB documents
+// ---------------------------------------------------------------------------
+
+// OpenDocument lets staff who can see applications read a document. Every opening is recorded.
+func (s *Service) OpenDocument(ctx context.Context, a Actor, id uuid.UUID) (*kyb.Document, []byte, error) {
+	if !a.Staff.Can("merchants.approve", View) {
+		s.denied(ctx, a, "document.view", "merchant_document", id, map[string]any{})
+		return nil, nil, ErrForbidden
+	}
+	d, data, err := s.KYB.Open(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		return s.audit(ctx, tx, a, "document.view", "merchant_document", id, "allowed",
+			map[string]any{"merchant_id": d.MerchantID, "kind": d.Kind})
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return d, data, nil
+}
+
+// ReviewDocument accepts or rejects a document. Staff who can approve applications (alone or with a
+// second person) check documents directly: the approval itself is what needs the second person.
+func (s *Service) ReviewDocument(ctx context.Context, a Actor, id uuid.UUID, accept bool, note string) (*kyb.Document, error) {
+	note = strings.TrimSpace(note)
+	action := map[bool]string{true: "document.accept", false: "document.reject"}[accept]
+	if !a.Staff.Can("merchants.approve", Approve) {
+		s.denied(ctx, a, action, "merchant_document", id, map[string]any{"note": note})
+		return nil, ErrForbidden
+	}
+	var doc *kyb.Document
+	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+		d, err := s.KYB.ReviewTx(ctx, tx, id, a.Staff.ID, accept, note)
+		if err != nil {
+			return err
+		}
+		doc = d
+		return s.audit(ctx, tx, a, action, "merchant_document", id, "allowed",
+			map[string]any{"merchant_id": d.MerchantID, "kind": d.Kind, "note": note})
+	})
+	return doc, err
 }
 
 // ---------------------------------------------------------------------------

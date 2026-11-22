@@ -10,6 +10,7 @@
 //	OPS_REQUIRED_AMR      comma-separated authentication methods, one of which the sign-in must have used
 //	                      (e.g. "hwk" for a hardware key). Required unless APP_ENV=dev.
 //	OPS_SESSION_KEY       base64 of 32+ random bytes; signs the short-lived sign-in cookie
+//	S3_*, DOCS_KEYS       KYB document storage, as for the API server (see kyb.FromEnv)
 //	APP_ENV               "dev" allows OPS_REQUIRED_AMR to be empty (the dev identity provider has no MFA)
 package main
 
@@ -28,6 +29,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"superapp/backend/internal/kyb"
 	"superapp/backend/internal/ledger"
 	"superapp/backend/internal/merchants"
 	"superapp/backend/internal/ops"
@@ -98,6 +100,12 @@ func run(log *slog.Logger) error {
 		Pool:      pool,
 		Merchants: &merchants.Service{Pool: pool},
 		Payouts:   payouts.NewService(pool, ledger.New(), &platform.PINVerifier{Pool: pool}),
+	}
+	if svc.KYB, err = kyb.FromEnv(ctx, pool, os.Getenv); err != nil {
+		return err
+	}
+	if svc.KYB == nil {
+		log.Warn("document storage off (S3_ENDPOINT not set): approvals don't check KYB documents")
 	}
 	// The identity provider may start after us (docker compose); keep trying for a minute.
 	var web *opsweb.Server

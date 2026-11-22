@@ -127,6 +127,45 @@ class PayoutAccount {
       PayoutAccount(j['rail'] as String, j['label'] as String, DateTime.parse(j['payouts_from'] as String).toLocal());
 }
 
+/// A document sent so the business can be verified (KYB).
+class MerchantDocument {
+  MerchantDocument(
+      {required this.id, required this.kind, required this.status, required this.uploadedAt, this.reviewNote});
+  final String id;
+  final String kind; // tin_certificate, trade_licence, owner_id, other
+  final String status; // submitted, accepted, rejected
+  final DateTime uploadedAt;
+  final String? reviewNote; // why it was rejected
+
+  factory MerchantDocument.fromJson(Map<String, dynamic> j) => MerchantDocument(
+        id: j['id'] as String,
+        kind: j['kind'] as String,
+        status: j['status'] as String,
+        uploadedAt: DateTime.parse(j['uploaded_at'] as String).toLocal(),
+        reviewNote: j['review_note'] as String?,
+      );
+}
+
+/// The documents sent, and the kinds the application needs.
+class MerchantDocuments {
+  MerchantDocuments(this.items, this.required);
+  final List<MerchantDocument> items;
+  final List<String> required;
+
+  /// The latest document of a kind, if one was sent.
+  MerchantDocument? latest(String kind) {
+    MerchantDocument? best;
+    for (final d in items) {
+      if (d.kind == kind && (best == null || d.uploadedAt.isAfter(best.uploadedAt))) best = d;
+    }
+    return best;
+  }
+}
+
+/// The type of an image file, from its first bytes (the server checks the same way).
+String imageType(List<int> b) =>
+    (b.length > 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF) ? 'image/jpeg' : 'image/png';
+
 /// Category codes a business can apply under (the server checks the same list).
 const merchantCategories = ['5411', '5812', '5814', '5912', '5651', '5732', '5251', '7230', '4121', '8299', '5999'];
 
@@ -182,6 +221,17 @@ extension BusinessApi on GebeyaApi {
       rethrow;
     }
   }
+
+  Future<MerchantDocuments> documents(String id) async {
+    final j = await api.get('/v1/merchants/$id/documents');
+    return MerchantDocuments(
+      [for (final d in j['items'] as List) MerchantDocument.fromJson(d as Map<String, dynamic>)],
+      [for (final k in j['required'] as List) k as String],
+    );
+  }
+
+  Future<MerchantDocument> uploadDocument(String id, String kind, List<int> bytes) async => MerchantDocument.fromJson(
+      await api.postBytes('/v1/merchants/$id/documents', bytes, imageType(bytes), query: {'kind': kind}));
 
   Future<PayoutAccount> setPayoutAccount(String id,
           {required String rail, String bankCode = '', required String account, required String pin}) async =>

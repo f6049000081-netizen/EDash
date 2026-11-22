@@ -138,28 +138,57 @@ class Api {
 
   Future<Map<String, dynamic>> delete(String path) => _authed('DELETE', path);
 
+  /// Sends a file as the raw request body. Uploads get longer than the usual 30 seconds: a photo over a
+  /// slow mobile connection takes a while.
+  Future<Map<String, dynamic>> postBytes(String path, List<int> bytes, String contentType,
+          {Map<String, String>? query}) =>
+      _authed('POST', path, bytes: bytes, contentType: contentType, query: query, timeout: const Duration(minutes: 3));
+
   /// Calls that need no session (sign-in).
   Future<Map<String, dynamic>> postPublic(String path, Map<String, dynamic> body) =>
       _send('POST', path, body: body, auth: false);
 
   Future<Map<String, dynamic>> _authed(String method, String path,
-      {Map<String, dynamic>? body, Map<String, String>? query, String? idempotencyKey}) async {
+      {Map<String, dynamic>? body,
+      Map<String, String>? query,
+      String? idempotencyKey,
+      List<int>? bytes,
+      String? contentType,
+      Duration timeout = const Duration(seconds: 30)}) async {
     if (_tokens == null || _tokens!.expiresAt.isBefore(DateTime.now().add(const Duration(seconds: 30)))) {
       if (await _refresh() == null) {
         throw ApiProblem(401, 'unauthenticated', 'Sign in again', 'Your session has ended.');
       }
     }
     try {
-      return await _send(method, path, body: body, query: query, idempotencyKey: idempotencyKey);
+      return await _send(method, path,
+          body: body,
+          query: query,
+          idempotencyKey: idempotencyKey,
+          bytes: bytes,
+          contentType: contentType,
+          timeout: timeout);
     } on ApiProblem catch (p) {
       if (p.status != 401) rethrow;
       if (await _refresh() == null) rethrow;
-      return _send(method, path, body: body, query: query, idempotencyKey: idempotencyKey);
+      return _send(method, path,
+          body: body,
+          query: query,
+          idempotencyKey: idempotencyKey,
+          bytes: bytes,
+          contentType: contentType,
+          timeout: timeout);
     }
   }
 
   Future<Map<String, dynamic>> _send(String method, String path,
-      {Map<String, dynamic>? body, Map<String, String>? query, String? idempotencyKey, bool auth = true}) async {
+      {Map<String, dynamic>? body,
+      Map<String, String>? query,
+      String? idempotencyKey,
+      bool auth = true,
+      List<int>? bytes,
+      String? contentType,
+      Duration timeout = const Duration(seconds: 30)}) async {
     final uri = Uri.parse(baseUrl + path).replace(queryParameters: (query == null || query.isEmpty) ? null : query);
     final req = http.Request(method, uri)..headers['Accept'] = 'application/json';
     final htu = '${uri.scheme}://${uri.authority}${uri.path}';
@@ -181,10 +210,13 @@ class Api {
     if (body != null) {
       req.headers['Content-Type'] = 'application/json';
       req.body = jsonEncode(body);
+    } else if (bytes != null) {
+      req.headers['Content-Type'] = contentType ?? 'application/octet-stream';
+      req.bodyBytes = bytes;
     }
     final http.Response res;
     try {
-      res = await http.Response.fromStream(await _http.send(req).timeout(const Duration(seconds: 30)));
+      res = await http.Response.fromStream(await _http.send(req).timeout(timeout));
     } catch (_) {
       throw ApiProblem.network();
     }

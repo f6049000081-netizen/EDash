@@ -44,6 +44,7 @@ import (
 
 	"superapp/backend/internal/httpapi"
 	"superapp/backend/internal/identity"
+	"superapp/backend/internal/kyb"
 	"superapp/backend/internal/ledger"
 	"superapp/backend/internal/merchants"
 	"superapp/backend/internal/notify"
@@ -182,12 +183,20 @@ func run(log *slog.Logger) error {
 	}
 	go relay.Run(ctx)
 
+	docs, err := kyb.FromEnv(ctx, pool, os.Getenv)
+	if err != nil {
+		return err
+	}
+	if docs == nil {
+		log.Warn("document storage off (S3_ENDPOINT not set): merchants can't send KYB documents")
+	}
+
 	srv := &http.Server{
 		Addr: addr,
 		Handler: (&httpapi.Server{
 			Pool: pool, Ledger: l, Payments: svc, Identity: ids, Auth: ids, Log: log, Notify: notifier, Payouts: pay,
-			Merchants: &merchants.Service{Pool: pool},
-			Webhooks:  webhooks, Sandbox: true, ClientIPHeader: os.Getenv("CLIENT_IP_HEADER"),
+			Merchants: &merchants.Service{Pool: pool}, KYB: docs,
+			Webhooks: webhooks, Sandbox: true, ClientIPHeader: os.Getenv("CLIENT_IP_HEADER"),
 		}).Routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,

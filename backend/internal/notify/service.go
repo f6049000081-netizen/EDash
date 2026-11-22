@@ -27,7 +27,7 @@ var Topics = []string{
 	"identity.signed_in", "identity.pin_reset", "identity.pin_changed", "identity.refresh_token_reused",
 	"identity.biometric_enrolled",
 	"payout.settled", "payout.on_hold", "merchant.payout_destination_changed", "merchant.applied", "merchant.approved",
-	"merchant.rejected", "merchant.suspended", "merchant.reinstated",
+	"merchant.rejected", "merchant.suspended", "merchant.reinstated", "merchant.document_rejected",
 }
 
 // Push is what a device shows. Data lets the app open the right screen.
@@ -196,6 +196,7 @@ type merchantEvent struct {
 	PayoutID    uuid.UUID   `json:"payout_id"`
 	Net         money.Money `json:"net"`
 	Reason      string      `json:"reason"`
+	Document    string      `json:"document"`
 	Destination string      `json:"destination"`
 	Label       string      `json:"label"`
 	EffectiveAt time.Time   `json:"effective_at"`
@@ -227,8 +228,14 @@ func (s *Service) merchant(ctx context.Context, m outbox.Message, ev merchantEve
 		kind = "merchant_applied"
 	case "merchant.approved":
 		kind = "merchant_approved"
-	case "merchant.rejected", "merchant.suspended", "merchant.reinstated":
+	case "merchant.rejected", "merchant.suspended", "merchant.reinstated", "merchant.document_rejected":
 		kind = strings.Replace(m.Topic, ".", "_", 1)
+		if m.Topic == "merchant.document_rejected" {
+			kind = "document_rejected_" + ev.Document
+			if _, ok := texts["en"][kind+".body"]; !ok {
+				kind = "document_rejected"
+			}
+		}
 		reason := strings.TrimSpace(ev.Reason)
 		if reason != "" && !strings.ContainsAny(reason[len(reason)-1:], ".!?") && !strings.HasSuffix(reason, "።") {
 			reason += "."

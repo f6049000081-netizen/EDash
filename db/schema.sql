@@ -426,6 +426,29 @@ CREATE TABLE merchant.members (
     PRIMARY KEY (merchant_id, user_id)
 );
 
+-- KYB documents. The files live encrypted (AES-256-GCM, by the application) in object storage under
+-- object_key; this table holds what staff need to find, check and decide them. No personal data in keys.
+CREATE TABLE merchant.documents (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    merchant_id     UUID NOT NULL REFERENCES merchant.merchants(id),
+    kind            TEXT NOT NULL CHECK (kind IN ('tin_certificate', 'trade_licence', 'owner_id', 'other')),
+    content_type    TEXT NOT NULL CHECK (content_type IN ('image/jpeg', 'image/png', 'application/pdf')),
+    size_bytes      INTEGER NOT NULL CHECK (size_bytes > 0),
+    sha256          TEXT NOT NULL CHECK (sha256 ~ '^[0-9a-f]{64}$'),
+    object_key      TEXT NOT NULL UNIQUE,
+    key_id          TEXT NOT NULL,              -- which encryption key sealed it, for key rotation
+    status          TEXT NOT NULL DEFAULT 'submitted' CHECK (status IN ('submitted', 'accepted', 'rejected', 'replaced')),
+    uploaded_by     UUID NOT NULL REFERENCES identity.users(id),
+    uploaded_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    reviewed_by     UUID,                       -- admin.staff (defined later)
+    reviewed_at     TIMESTAMPTZ,
+    review_note     TEXT,                       -- why it was rejected (shown to the owner)
+    CHECK (status NOT IN ('accepted', 'rejected') OR reviewed_by IS NOT NULL)
+);
+
+CREATE INDEX documents_merchant ON merchant.documents (merchant_id, kind, uploaded_at DESC);
+CREATE UNIQUE INDEX documents_same_file ON merchant.documents (merchant_id, sha256) WHERE status <> 'replaced';
+
 CREATE TABLE merchant.commission_plans (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     merchant_id     UUID REFERENCES merchant.merchants(id),  -- null = default for a category
@@ -810,7 +833,7 @@ CREATE TABLE admin.audit_log (
     action          TEXT NOT NULL,              -- pii.unmask, refund.approve, rule.update, permission.denied ...
     target_type     TEXT,
     target_id       UUID,
-    result          TEXT NOT NULL CHECK (result IN ('allowed', 'denied', 'pending')),
+    result          TEXT NOT NULL CHECK (result IN ('allowed', 'denied', 'pending', 'failed')),  -- failed: allowed, but the change couldn't be made
     device          TEXT,
     ip              INET,
     detail          JSONB,

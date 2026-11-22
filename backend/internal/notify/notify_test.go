@@ -437,3 +437,17 @@ func TestMerchantDecisionsTellTheOwnerWhy(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+func TestARejectedDocumentTellsTheOwnerWhatToResend(t *testing.T) {
+	e := setup(t)
+	shop := e.merchant("Abay Kiosk")
+	owner := e.user("Owner", "en")
+	e.exec(`INSERT INTO merchant.members (merchant_id, user_id, role) VALUES ($1, $2, 'owner')`, shop, owner)
+	e.handle(event("merchant.document_rejected", shop, map[string]any{"merchant_id": shop, "document": "owner_id",
+		"reason": "The photo is cut off at the bottom"}))
+	got := e.list(owner)
+	if len(got) != 1 || got[0].Title != "Abay Kiosk: send your ID again" ||
+		got[0].Body != "We couldn't accept it. The photo is cut off at the bottom. Add a new photo in Profile → Business." {
+		t.Fatalf("%+v", got)
+	}
+}

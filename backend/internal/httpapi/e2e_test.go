@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -26,6 +27,8 @@ import (
 
 	"superapp/backend/internal/httpapi"
 	"superapp/backend/internal/identity"
+	"superapp/backend/internal/kyb"
+	"superapp/backend/internal/kyb/kybtest"
 	"superapp/backend/internal/ledger"
 	"superapp/backend/internal/merchants"
 	"superapp/backend/internal/notify"
@@ -107,10 +110,12 @@ func TestEndToEndSignInAndPay(t *testing.T) {
 	rules.VelocityMax = 0
 	pay := payments.NewService(pool, l, rules, &platform.PINVerifier{Pool: pool})
 	notifier := &notify.Service{Pool: pool, Log: log}
+	sealer, _ := kyb.ParseKeys("k1:" + base64.StdEncoding.EncodeToString(key))
+	docs := &kyb.Service{Pool: pool, Store: kybtest.NewMemStore(), Sealer: sealer}
 	srv := httptest.NewServer((&httpapi.Server{
 		Pool: pool, Ledger: l, Payments: pay, Identity: ids, Auth: ids, Log: log, Sandbox: true, Notify: notifier,
 		Payouts:   payouts.NewService(pool, l, &platform.PINVerifier{Pool: pool}),
-		Merchants: &merchants.Service{Pool: pool},
+		Merchants: &merchants.Service{Pool: pool}, KYB: docs,
 	}).Routes())
 	defer srv.Close()
 
@@ -305,6 +310,45 @@ func TestEndToEndSignInAndPay(t *testing.T) {
 	}
 	if st, p := alice.do("GET", "/v1/merchants/"+kiosk, nil, false); st != http.StatusNotFound {
 		t.Errorf("someone else's application: %d %v", st, p)
+	}
+
+	// KYB documents: the owner sends a photo as the raw body; the server checks what the file really is.
+	upload := func(c *client, kind string, body []byte) (int, map[string]any) {
+		req, _ := http.NewRequest("POST", srv.URL+"/v1/merchants/"+kiosk+"/documents?kind="+kind, bytes.NewReader(body))
+		req.Header.Set("Content-Type", "image/jpeg")
+		req.Header.Set("Authorization", "Bearer "+c.token)
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer res.Body.Close()
+		out := map[string]any{}
+		_ = json.NewDecoder(res.Body).Decode(&out)
+		return res.StatusCode, out
+	}
+	if st, p := bob.do("GET", "/v1/merchants/"+kiosk+"/documents", nil, false); st != http.StatusOK ||
+		fmt.Sprint(p["required"]) != "[tin_certificate owner_id]" || len(p["items"].([]any)) != 0 {
+		t.Errorf("documents before upload: %d %v", st, p)
+	}
+	if st, p := upload(bob, "owner_id", append([]byte("<svg onload=alert(1)>"), make([]byte, 2048)...)); st != http.StatusUnprocessableEntity {
+		t.Errorf("not a photo: %d %v", st, p)
+	}
+	if st, p := upload(alice, "owner_id", kybtest.Photo("alice")); st != http.StatusNotFound {
+		t.Errorf("someone else's shop: %d %v", st, p)
+	}
+	if st, p := upload(bob, "owner_id", append([]byte{0xFF, 0xD8, 0xFF}, make([]byte, kyb.MaxSize+1)...)); st != http.StatusRequestEntityTooLarge {
+		t.Errorf("too big: %d %v", st, p)
+	}
+	photo := kybtest.Photo(uuid.NewString())
+	st, doc := upload(bob, "owner_id", photo)
+	if st != http.StatusCreated || doc["status"] != "submitted" || doc["content_type"] != "image/jpeg" || doc["size_bytes"] != float64(len(photo)) {
+		t.Fatalf("upload: %d %v", st, doc)
+	}
+	if st, again := upload(bob, "owner_id", photo); st != http.StatusCreated || again["id"] != doc["id"] {
+		t.Errorf("same photo again: %d %v", st, again)
+	}
+	if st, p := bob.do("GET", "/v1/merchants/"+kiosk+"/documents", nil, false); st != http.StatusOK || len(p["items"].([]any)) != 1 {
+		t.Errorf("documents after upload: %d %v", st, p)
 	}
 	if _, err := (&merchants.Service{Pool: pool}).Approve(ctx, uuid.MustParse(kiosk), uuid.New()); err != nil {
 		t.Fatal(err)

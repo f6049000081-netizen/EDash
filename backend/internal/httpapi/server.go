@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"superapp/backend/internal/identity"
+	"superapp/backend/internal/kyb"
 	"superapp/backend/internal/ledger"
 	"superapp/backend/internal/merchants"
 	"superapp/backend/internal/money"
@@ -31,6 +32,7 @@ type Server struct {
 	Notify    *notify.Service        // nil: no notification endpoints
 	Payouts   *payouts.Service       // nil: no merchant payout endpoints
 	Merchants *merchants.Service     // nil: no merchant endpoints
+	KYB       *kyb.Service           // nil: document endpoints answer documents_unavailable
 	Auth      platform.Authenticator // normally Identity; tests may substitute their own
 	Log       *slog.Logger
 	Sandbox   bool // enables POST /v1/sandbox/topups
@@ -76,6 +78,8 @@ func (s *Server) Routes() http.Handler {
 		mux.Handle("GET /v1/merchants/{id}/summary", authed(s.merchantSummary))
 		mux.Handle("GET /v1/merchants/{id}/payments", authed(s.merchantPayments))
 		mux.Handle("GET /v1/merchants/{id}/qr", authed(s.merchantQR))
+		mux.Handle("GET /v1/merchants/{id}/documents", authed(s.listDocuments))
+		mux.Handle("POST /v1/merchants/{id}/documents", authed(s.uploadDocument))
 	}
 	if s.Payouts != nil {
 		mux.Handle("GET /v1/merchants/{id}/payouts", authed(s.listPayouts))

@@ -89,6 +89,7 @@ Profile → Business opens the shop for anyone who belongs to one, or the applic
 - **The shop screen** follows the merchant app design. It shows sales today and a "Show my QR" button, which displays the shop's EMVCo QR in black on white even in dark mode. The payments received refresh every 15 seconds.
 - **Owners, managers and accountants** also see the next payout, the payout account and the payout history.
 - **Owners** can change the payout account with their PIN. The sheet explains the 48-hour wait.
+- **While the application is reviewed**, owners and managers see the documents it needs and what happened to each (not sent, being checked, accepted, or rejected with the reason). Owners send each one as a photo, taken with the camera or picked from the gallery (`image_picker`), scaled to at most 2400 px. Uploads can take up to 3 minutes.
 - **Not built yet:** orders, products, promotions and insights from the design, because those modules don't exist yet.
 
 ## Signing key for dev builds

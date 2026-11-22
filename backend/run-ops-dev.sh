@@ -57,6 +57,7 @@ EOF2
   done
 fi
 
+./dev-storage.sh
 docker rm -f g1dex >/dev/null 2>&1 || true
 MSYS_NO_PATHCONV=1 docker run -d --name g1dex --network g1net -p 127.0.0.1:5556:5556 -p 127.0.0.1:8090:8090 -v "$SRC/.dex:/etc/dex:ro" \
   ghcr.io/dexidp/dex:v2.41.1 dex serve /etc/dex/config.yaml >/dev/null
@@ -64,7 +65,7 @@ MSYS_NO_PATHCONV=1 docker run -d --name g1dex --network g1net -p 127.0.0.1:5556:
 MSYS_NO_PATHCONV=1 docker run --rm -v "$SRC:/src" -v g1gomod:/go/pkg/mod -v g1gocache:/root/.cache/go-build \
   -w /src -e CGO_ENABLED=0 golang:1.23.4 go build -o bin/ops ./cmd/ops
 docker rm -f g1ops >/dev/null 2>&1 || true
-MSYS_NO_PATHCONV=1 docker run -d --name g1ops --network container:g1dex --env-file .dex/ops.env \
+MSYS_NO_PATHCONV=1 docker run -d --name g1ops --network container:g1dex --env-file .dex/ops.env --env-file .s3/docs.env \
   -v "$SRC/bin:/app:ro" golang:1.23.4 /app/ops >/dev/null
 for i in 1 2 3 4 5 6 7 8 9 10; do curl -sf http://localhost:8090/healthz >/dev/null && break; sleep 2; done
 curl -sf http://localhost:8090/healthz >/dev/null && echo "ok - console on http://localhost:8090/ops/ (passwords in backend/.dex/passwords.txt)" \
