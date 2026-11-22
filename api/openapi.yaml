@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: EDash API
-  version: 0.3.0
+  version: 0.4.0
   summary: Phase 1 contract for the consumer app, merchant app and admin console.
   description: |
     Conventions
@@ -1116,6 +1116,36 @@ paths:
             application/json:
               schema: { $ref: '#/components/schemas/Shop' }
         '404': { $ref: '#/components/responses/Problem' }
+  /v1/shops/{id}/slots:
+    get:
+      tags: [Commerce]
+      summary: The delivery times a customer can book now
+      description: |
+        For shops with delivery times (`delivery_slots` on the shop). Full times are listed too, with `left` 0, so
+        the app can show them greyed out. Orders still being paid for hold their place until they lapse (30 minutes).
+        `uses_slots` is false, with no items, when the shop delivers as soon as it can.
+      operationId: listDeliverySlots
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      responses:
+        '200':
+          description: The times, earliest first
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  uses_slots: { type: boolean }
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        start: { type: string, format: date-time }
+                        end: { type: string, format: date-time }
+                        left: { type: integer, description: Orders it can still take. }
+                        full: { type: boolean }
+        '401': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
   /v1/orders:
     post:
       tags: [Commerce]
@@ -1147,6 +1177,13 @@ paths:
                       product_id: { type: string, format: uuid }
                       quantity: { type: integer, minimum: 1, maximum: 99 }
                 delivery_address: { type: string, maxLength: 300, description: Required for delivery. Include a landmark. }
+                slot_start:
+                  type: string
+                  format: date-time
+                  description: |
+                    The delivery time chosen, as a `start` from `GET /v1/shops/{id}/slots`. Required for delivery at
+                    shops with delivery times, refused otherwise. A time that has filled up or can no longer be
+                    booked answers 409; load the times again.
                 note: { type: string, maxLength: 280 }
       responses:
         '201':
@@ -1247,6 +1284,13 @@ paths:
                 delivery_fee: { $ref: '#/components/schemas/Money' }
                 delivery_area: { type: string, maxLength: 200, description: Required when delivery is on. }
                 about: { type: string, maxLength: 500 }
+                delivery_slots:
+                  description: |
+                    Delivery times, or null to deliver as soon as possible. Send the shop's current value back when
+                    changing other settings, or the times are turned off. Dropped when delivery is off.
+                  oneOf:
+                    - { $ref: '#/components/schemas/DeliverySlotRules' }
+                    - { type: 'null' }
       responses:
         '200':
           description: Saved
@@ -1694,7 +1738,26 @@ components:
         delivery_area: { type: string }
         about: { type: string }
         product_count: { type: integer }
+        delivery_slots:
+          description: The shop's delivery times; null when it delivers as soon as it can.
+          oneOf:
+            - { $ref: '#/components/schemas/DeliverySlotRules' }
+            - { type: 'null' }
         products: { type: array, items: { $ref: '#/components/schemas/Product' }, description: Single shop only. }
+    DeliverySlotRules:
+      type: object
+      description: |
+        Times of `minutes` from `from` to `to` every day, Addis Ababa time (UTC+3, 24-hour clock), each taking up to
+        `capacity` orders, bookable `days` days ahead (today included) and at least `lead_minutes` in advance.
+      required: [minutes, from, to, capacity, days, lead_minutes]
+      properties:
+        minutes: { type: integer, enum: [60, 120, 180, 240] }
+        from: { type: string, pattern: '^([01][0-9]|2[0-4]):(00|30)$', example: '09:00' }
+        to: { type: string, pattern: '^([01][0-9]|2[0-4]):(00|30)$', example: '18:00' }
+        capacity: { type: integer, minimum: 1, maximum: 50 }
+        days: { type: integer, minimum: 1, maximum: 7 }
+        lead_minutes: { type: integer, minimum: 0, maximum: 1440 }
+        time_zone: { type: string, readOnly: true, example: Africa/Addis_Ababa }
     Product:
       type: object
       properties:
@@ -1762,6 +1825,8 @@ components:
         accept_by: { type: [string, 'null'], format: date-time, description: Placed orders. Cancelled and refunded if the shop hasn't accepted by then. }
         overdue: { type: boolean, description: "Accepted over a day ago and not handed over yet: the shop and customer were reminded. The customer can confirm with POST /v1/orders/{id}/received." }
         in_review: { type: boolean, description: "Still not handed over three days after accepting: operations will refund the customer or pay the shop (with a second person's approval). The money stays in escrow until then, and either side can still finish the order." }
+        slot_start: { type: [string, 'null'], format: date-time, description: "The delivery time booked, if the shop uses them." }
+        slot_end: { type: [string, 'null'], format: date-time }
         created_at: { type: string, format: date-time }
         placed_at: { type: [string, 'null'], format: date-time }
         accepted_at: { type: [string, 'null'], format: date-time }

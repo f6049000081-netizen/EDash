@@ -42,8 +42,10 @@ type Order struct {
 	CompletedAt     *time.Time
 	CancelledAt     *time.Time
 	AcceptBy        *time.Time // placed orders: when it's cancelled if the shop hasn't accepted
-	Overdue         bool       // accepted but not handed over in time (RemindAfter)
-	InReview        bool       // passed to operations to settle (ReviewAfter)
+	SlotStart       *time.Time // the delivery time booked, if any
+	SlotEnd         *time.Time
+	Overdue         bool // accepted but not handed over in time (RemindAfter)
+	InReview        bool // passed to operations to settle (ReviewAfter)
 }
 
 type Item struct {
@@ -63,6 +65,7 @@ type PlaceRequest struct {
 	Items           []LineRequest
 	DeliveryAddress string
 	Note            string
+	SlotStart       *time.Time // the delivery time chosen, for shops that use them (see Slots)
 }
 
 type LineRequest struct {
@@ -90,6 +93,9 @@ func (s *Service) Place(ctx context.Context, user uuid.UUID, req PlaceRequest) (
 	}
 	if req.Channel == "pickup" {
 		req.DeliveryAddress = ""
+		if req.SlotStart != nil {
+			return nil, &ValidationError{"Delivery times are for delivery orders."}
+		}
 	}
 	qty := map[uuid.UUID]int{}
 	for _, l := range req.Items {
@@ -135,6 +141,12 @@ func (s *Service) Place(ctx context.Context, user uuid.UUID, req PlaceRequest) (
 		}
 		if req.Channel == "pickup" {
 			fee = 0
+		}
+		var slotEnd *time.Time
+		if req.Channel == "delivery" {
+			if slotEnd, err = s.bookSlot(ctx, tx, req.MerchantID, req.SlotStart); err != nil {
+				return err
+			}
 		}
 
 		// Lock the products in a fixed order so two orders for the same products can't deadlock.
@@ -182,9 +194,10 @@ func (s *Service) Place(ctx context.Context, user uuid.UUID, req PlaceRequest) (
 		}
 		if _, err := tx.Exec(ctx, `
 			INSERT INTO commerce.orders (id, user_id, merchant_id, channel, status, subtotal_minor, delivery_fee_minor,
-				total_minor, currency, delivery_address, note, handover_code)
-			VALUES ($1, $2, $3, $4, 'pending_payment', $5, $6, $7, 'ETB', NULLIF($8, ''), NULLIF($9, ''), $10)`,
-			id, user, req.MerchantID, req.Channel, subtotal, fee, subtotal+fee, req.DeliveryAddress, req.Note, code); err != nil {
+				total_minor, currency, delivery_address, note, handover_code, slot_start, slot_end)
+			VALUES ($1, $2, $3, $4, 'pending_payment', $5, $6, $7, 'ETB', NULLIF($8, ''), NULLIF($9, ''), $10, $11, $12)`,
+			id, user, req.MerchantID, req.Channel, subtotal, fee, subtotal+fee, req.DeliveryAddress, req.Note, code,
+			slotStartIf(slotEnd, req.SlotStart), slotEnd); err != nil {
 			return err
 		}
 		for i, it := range items {
@@ -207,6 +220,14 @@ func (s *Service) Place(ctx context.Context, user uuid.UUID, req PlaceRequest) (
 	return s.Order(ctx, user, id)
 }
 
+// slotStartIf keeps the chosen start only when a slot was booked.
+func slotStartIf(end *time.Time, start *time.Time) *time.Time {
+	if end == nil {
+		return nil
+	}
+	return start
+}
+
 func itoa(n int) string {
 	if n == 0 {
 		return "0"
@@ -226,7 +247,7 @@ const orderCols = `o.id, o.number, o.status, o.channel, o.merchant_id, m.trade_n
 	o.total_minor, o.currency, COALESCE(o.delivery_address, ''), COALESCE(o.note, ''), o.intent_id,
 	COALESCE(i.status::text, ''), COALESCE(o.handover_code, ''), COALESCE(o.cancel_reason, ''), COALESCE(o.cancel_note, ''),
 	COALESCE(u.display_name, ''), u.phone_e164, o.created_at, o.placed_at, o.accepted_at, o.ready_at, o.completed_at,
-	o.cancelled_at, o.overdue_at IS NOT NULL, o.review_at IS NOT NULL`
+	o.cancelled_at, o.overdue_at IS NOT NULL, o.review_at IS NOT NULL, o.slot_start, o.slot_end`
 
 const orderFrom = `FROM commerce.orders o JOIN merchant.merchants m ON m.id = o.merchant_id
 	JOIN identity.users u ON u.id = o.user_id LEFT JOIN payments.intents i ON i.id = o.intent_id`
@@ -239,7 +260,7 @@ func (s *Service) scanOrders(ctx context.Context, rows pgx.Rows, forShop bool) (
 		err := r.Scan(&o.ID, &o.Number, &o.Status, &o.Channel, &o.MerchantID, &o.ShopName, &sub, &fee, &total, &cur,
 			&o.DeliveryAddress, &o.Note, &o.PaymentIntentID, &o.PaymentStatus, &o.HandoverCode, &o.CancelReason,
 			&o.CancelNote, &o.CustomerName, &phone, &o.CreatedAt, &o.PlacedAt, &o.AcceptedAt, &o.ReadyAt,
-			&o.CompletedAt, &o.CancelledAt, &o.Overdue, &o.InReview)
+			&o.CompletedAt, &o.CancelledAt, &o.Overdue, &o.InReview, &o.SlotStart, &o.SlotEnd)
 		if o.Status != "accepted" && o.Status != "ready" && o.Status != "on_the_way" {
 			o.Overdue, o.InReview = false, false
 		}
@@ -764,7 +785,7 @@ func (s *Service) FlagStalled(ctx context.Context) (reminded, reviewed int, err 
 	} {
 		rows, err := s.Pool.Query(ctx, `
 			SELECT id FROM commerce.orders
-			WHERE status IN ('accepted', 'ready', 'on_the_way') AND accepted_at < $1 AND `+step.col+` IS NULL
+			WHERE status IN ('accepted', 'ready', 'on_the_way') AND GREATEST(accepted_at, slot_end) < $1 AND `+step.col+` IS NULL
 			  AND review_at IS NULL
 			ORDER BY accepted_at LIMIT 200`, now.Add(-step.after))
 		if err != nil {

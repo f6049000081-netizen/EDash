@@ -149,12 +149,24 @@ func TestPickupOrderFromBasketToHandover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The test database keeps every run's shops, so ours may be past the first 100. Then the list must be
+	// full of open shops that sort before it.
 	found := false
 	for _, s := range list {
 		found = found || (s.MerchantID == shop && s.ProductCount == 2 && s.Open)
 	}
 	if !found {
-		t.Fatalf("shop not listed")
+		if len(list) < 100 {
+			t.Fatalf("shop not listed")
+		}
+		for _, s := range list {
+			if !s.Open || s.Name > "Merkato Fresh" {
+				t.Fatalf("listed before an open Merkato Fresh: %q (open %v)", s.Name, s.Open)
+			}
+		}
+		if got, err := e.svc.Shop(e.ctx, shop); err != nil || got.ProductCount != 2 || !got.Open {
+			t.Fatalf("shop page: %v %+v", err, got)
+		}
 	}
 
 	o, err := e.svc.Place(e.ctx, hana, commerce.PlaceRequest{MerchantID: shop, Channel: "pickup", Note: "No plastic bag",

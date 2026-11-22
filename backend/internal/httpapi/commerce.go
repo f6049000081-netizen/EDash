@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -15,6 +16,7 @@ import (
 func (s *Server) commerceRoutes(mux *http.ServeMux, authed, mutating func(http.HandlerFunc) http.Handler) {
 	mux.Handle("GET /v1/shops", authed(s.listShops))
 	mux.Handle("GET /v1/shops/{id}", authed(s.getShop))
+	mux.Handle("GET /v1/shops/{id}/slots", authed(s.getSlots))
 	mux.Handle("POST /v1/orders", mutating(s.placeOrder))
 	mux.Handle("GET /v1/orders", authed(s.listOrders))
 	mux.Handle("GET /v1/orders/{id}", authed(s.getOrder))
@@ -68,7 +70,7 @@ func shopJSON(sh *commerce.Shop, withProducts bool) map[string]any {
 	m := map[string]any{
 		"merchant_id": sh.MerchantID, "name": sh.Name, "category": sh.Category, "city": sh.City, "open": sh.Open,
 		"pickup": sh.Pickup, "delivery": sh.Delivery, "delivery_fee": sh.DeliveryFee, "delivery_area": sh.DeliveryArea,
-		"about": sh.About, "product_count": sh.ProductCount,
+		"about": sh.About, "product_count": sh.ProductCount, "delivery_slots": slotRulesJSON(sh.Slots),
 	}
 	if withProducts {
 		ps := make([]map[string]any, len(sh.Products))
@@ -94,10 +96,11 @@ func productJSON(p commerce.Product) map[string]any {
 
 func (s *Server) placeOrder(w http.ResponseWriter, r *http.Request) {
 	var body struct {
-		MerchantID      uuid.UUID `json:"merchant_id"`
-		Channel         string    `json:"channel"`
-		DeliveryAddress string    `json:"delivery_address"`
-		Note            string    `json:"note"`
+		MerchantID      uuid.UUID  `json:"merchant_id"`
+		Channel         string     `json:"channel"`
+		DeliveryAddress string     `json:"delivery_address"`
+		Note            string     `json:"note"`
+		SlotStart       *time.Time `json:"slot_start"`
 		Items           []struct {
 			ProductID uuid.UUID `json:"product_id"`
 			Quantity  int       `json:"quantity"`
@@ -106,7 +109,8 @@ func (s *Server) placeOrder(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
-	req := commerce.PlaceRequest{MerchantID: body.MerchantID, Channel: body.Channel, DeliveryAddress: body.DeliveryAddress, Note: body.Note}
+	req := commerce.PlaceRequest{MerchantID: body.MerchantID, Channel: body.Channel, DeliveryAddress: body.DeliveryAddress, Note: body.Note,
+		SlotStart: body.SlotStart}
 	for _, it := range body.Items {
 		req.Items = append(req.Items, commerce.LineRequest{ProductID: it.ProductID, Quantity: it.Quantity})
 	}
@@ -183,6 +187,7 @@ func orderJSON(o *commerce.Order) map[string]any {
 		"payment_status": o.PaymentStatus, "cancel_reason": o.CancelReason, "cancel_note": o.CancelNote,
 		"created_at": o.CreatedAt, "placed_at": o.PlacedAt, "accepted_at": o.AcceptedAt, "ready_at": o.ReadyAt,
 		"completed_at": o.CompletedAt, "cancelled_at": o.CancelledAt, "accept_by": o.AcceptBy, "overdue": o.Overdue, "in_review": o.InReview,
+		"slot_start": o.SlotStart, "slot_end": o.SlotEnd,
 	}
 	if o.HandoverCode != "" {
 		m["handover_code"] = o.HandoverCode
@@ -222,12 +227,21 @@ func (s *Server) putShopSettings(w http.ResponseWriter, r *http.Request) {
 		DeliveryFee  *money.Money `json:"delivery_fee"`
 		DeliveryArea string       `json:"delivery_area"`
 		About        string       `json:"about"`
+		Slots        *slotBody    `json:"delivery_slots"`
 	}
 	if !decode(w, r, &body) {
 		return
 	}
 	u := commerce.ShopUpdate{Open: body.Open, Pickup: body.Pickup, Delivery: body.Delivery, DeliveryFee: money.New(0, money.ETB),
 		DeliveryArea: body.DeliveryArea, About: body.About}
+	if body.Slots != nil {
+		rules, err := body.Slots.rules()
+		if err != nil {
+			s.failCommerce(w, err)
+			return
+		}
+		u.Slots = rules
+	}
 	if body.DeliveryFee != nil {
 		u.DeliveryFee = *body.DeliveryFee
 	}

@@ -563,8 +563,19 @@ CREATE TABLE commerce.shops (
     delivery_fee_minor BIGINT NOT NULL DEFAULT 0 CHECK (delivery_fee_minor >= 0),
     delivery_area   TEXT CHECK (char_length(delivery_area) <= 200),
     about           TEXT CHECK (char_length(about) <= 500),
+    -- Delivery times (all null: the shop delivers as soon as it can). Minutes after midnight, Ethiopian time.
+    slot_minutes    SMALLINT CHECK (slot_minutes IN (60, 120, 180, 240)),
+    slot_from       SMALLINT CHECK (slot_from BETWEEN 0 AND 1440),
+    slot_to         SMALLINT CHECK (slot_to BETWEEN 0 AND 1440),
+    slot_capacity   SMALLINT CHECK (slot_capacity BETWEEN 1 AND 50),
+    slot_days       SMALLINT CHECK (slot_days BETWEEN 1 AND 7),
+    slot_lead_minutes SMALLINT CHECK (slot_lead_minutes BETWEEN 0 AND 1440),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CHECK (pickup OR delivery)
+    CHECK (pickup OR delivery),
+    CHECK ((slot_minutes IS NULL) = (slot_from IS NULL) AND (slot_minutes IS NULL) = (slot_to IS NULL)
+       AND (slot_minutes IS NULL) = (slot_capacity IS NULL) AND (slot_minutes IS NULL) = (slot_days IS NULL)
+       AND (slot_minutes IS NULL) = (slot_lead_minutes IS NULL)),
+    CHECK (slot_to - slot_from >= slot_minutes)
 );
 
 CREATE TABLE commerce.products (
@@ -628,6 +639,7 @@ CREATE INDEX ON commerce.orders (merchant_id, status, created_at DESC);
 CREATE INDEX ON commerce.orders (user_id, created_at DESC);
 CREATE INDEX ON commerce.orders (status, created_at) WHERE status IN ('pending_payment', 'placed');
 CREATE INDEX ON commerce.orders (accepted_at) WHERE status IN ('accepted', 'ready', 'on_the_way');
+CREATE INDEX ON commerce.orders (merchant_id, slot_start) WHERE slot_start IS NOT NULL;
 
 CREATE TABLE commerce.order_items (
     order_id        UUID NOT NULL REFERENCES commerce.orders(id),

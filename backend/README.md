@@ -268,6 +268,12 @@ Before going live, check these against the spec and test keys that come with the
   - `GET /v1/products/{product}/photos/{photo}` serves only a product's current photo, without sign-in (the app's image loader can't sign requests), cached for a year: each new photo gets a new ID, and the old files are deleted.
   - The web business console shows them through its own origin (`/business/products/{id}/photo/...`), only for its own shop's products.
   - **Checked live** on 2026-11-22 against SeaweedFS: a 1600×1200 phone photo with GPS data in its EXIF came back as 1200×900 and 320×240 JPEGs without it; a customer couldn't change it; a PDF was refused; the photo showed on the shop page and in the console; replaced and removed photos stopped being served.
+- **Delivery times** (`commerce/slots.go`). A shop that delivers can let customers choose when the order arrives.
+  - **The shop's rules** (`delivery_slots` on `PUT /v1/merchants/{id}/shop`): times of 1, 2, 3 or 4 hours between two half-hours of the day, each taking 1 to 50 orders, bookable 1 to 7 days ahead (today included) and at least some notice ahead (0 to 24 h). Null means "as soon as we can", as before. Turning delivery off drops them. Clients must send the current value back when changing other settings; the app and the console do.
+  - **Addis Ababa time.** Times are laid out in UTC+3 (no daylight saving) whatever the customer's phone says, because that's when the order arrives; a diaspora customer books a time in Addis. The apps label them "Addis Ababa time"; the Amharic adds "በፈረንጅ አቆጣጠር" so 09:00 isn't read on the Ethiopian 12-hour clock.
+  - **Booking.** `GET /v1/shops/{id}/slots` lists the times and the places left, full ones included. A delivery order at such a shop must name one (`slot_start`); one that isn't offered, or has filled up, answers 409. The check and the insert run under a transaction-scoped advisory lock per shop and time, so two customers can't both take the last place. Orders waiting for payment hold their place until they lapse (30 min); cancelled and refunded orders free it.
+  - **Reminders** for unfinished orders count from the later of accepting and the end of the booked time, so an order booked for Friday isn't "overdue" on Thursday.
+  - **Checked live** on 2026-11-22 against the dev servers at 21:45 Addis time: a 2-hour, one-order-per-time set-up offered tomorrow's seven times (none left today), a delivery without a time was refused, a booked and paid time showed as full and refused a second customer, the time showed on the console's order list and order page (also in Amharic), and closing the shop from the console's home switch kept the times.
 - **Accepted orders that are never handed over** (`FlagStalled`, also every minute). Nothing is decided automatically, because either outcome moves money and could be wrong: the customer's money stays in escrow until a person decides.
   - **After a day** (`RemindAfter`, 24 h after accepting) the shop and the customer are reminded (`order.overdue`). The shop is asked to hand it over or cancel it; the customer is asked to tap "I have my order" if they have it. Orders show `overdue: true`.
   - **After three days** (`ReviewAfter`, 72 h) the order goes to operations (`order.review`, `in_review: true`), and both sides are told our team will settle it.
@@ -280,7 +286,6 @@ Before going live, check these against the spec and test keys that come with the
 - **Held payments.** When risk holds an order's payment, the order waits as `pending_payment`. If staff release it in the operations console, the order is placed then.
 - **Checked live** on 2026-11-22 against the dev server: shop set-up, order, PIN payment, accept, ready, a wrong code refused, handover with the right code, ETB 358.20 pending payout from a ETB 360 order, then a second order cancelled and refunded with its stock returned.
 - **Not built yet:**
-  - Product photos and delivery time slots.
   - Refunds after handover (returns and disputes).
   - Couriers and delivery tracking.
   - A separate commission plan for orders.

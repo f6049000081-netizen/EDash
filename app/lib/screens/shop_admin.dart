@@ -12,7 +12,7 @@ import '../l10n/strings.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
 import 'business.dart' show PhotoPicker, pickDocumentPhoto;
-import 'shop.dart' show ProductThumb;
+import 'shop.dart' show ProductThumb, slotWhen;
 
 String _problemText(BuildContext context, ApiProblem p) =>
     p.message.isNotEmpty ? p.message : S.of(context).t('error_generic');
@@ -214,6 +214,9 @@ class _OrderCard extends StatelessWidget {
             ].join(' · '),
             style: text.bodySmall),
         if (o.delivery && o.deliveryAddress.isNotEmpty) Text(o.deliveryAddress, style: text.bodySmall),
+        if (o.slotStart != null)
+          Text(s.t('slot_arrives', {'when': slotWhen(context, o.slotStart!, o.slotEnd!)}),
+              style: text.bodySmall?.copyWith(fontWeight: FontWeight.w600)),
         if (o.status == 'cancelled')
           Text(s.t('order_cancelled_${o.cancelReason}', {'shop': o.shopName}), style: text.bodySmall),
         if (o.inProgress && (o.inReview || o.overdue))
@@ -392,7 +395,8 @@ class _CatalogScreenState extends State<CatalogScreen> {
           delivery: sh.delivery,
           deliveryFee: sh.deliveryFee,
           deliveryArea: sh.deliveryArea,
-          about: sh.about);
+          about: sh.about,
+          deliverySlots: sh.deliverySlots);
       if (mounted) setState(() => _shop = saved);
     } on ApiProblem catch (p) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_problemText(context, p))));
@@ -506,8 +510,26 @@ class _SettingsSheetState extends State<_SettingsSheet> {
   late final _fee = TextEditingController(text: widget.shop.deliveryFee.isZero ? '' : widget.shop.deliveryFee.decimal);
   late final _area = TextEditingController(text: widget.shop.deliveryArea);
   late final _about = TextEditingController(text: widget.shop.about);
+  late bool _useSlots = widget.shop.deliverySlots != null;
+  late SlotRules _slots = widget.shop.deliverySlots ?? const SlotRules();
   bool _busy = false;
   String? _error;
+
+  /// Every half hour from 00:00 to 24:00, for the delivery-hours menus.
+  static final _halfHours = [
+    for (var m = 0; m <= 24 * 60; m += 30)
+      '${(m ~/ 60).toString().padLeft(2, '0')}:${(m % 60).toString().padLeft(2, '0')}'
+  ];
+
+  Widget _menu<T>(String label, T value, List<T> values, String Function(T) show, void Function(T) set) =>
+      DropdownButtonFormField<T>(
+        value: values.contains(value) ? value : null,
+        decoration: InputDecoration(labelText: label),
+        items: [for (final v in values) DropdownMenuItem(value: v, child: Text(show(v)))],
+        onChanged: (v) {
+          if (v != null) setState(() => set(v));
+        },
+      );
 
   @override
   void dispose() {
@@ -535,7 +557,8 @@ class _SettingsSheetState extends State<_SettingsSheet> {
           delivery: _delivery,
           deliveryFee: fee,
           deliveryArea: _area.text.trim(),
-          about: _about.text.trim());
+          about: _about.text.trim(),
+          deliverySlots: _delivery && _useSlots ? _slots : null);
       if (mounted) Navigator.of(context).pop(saved);
     } on ApiProblem catch (p) {
       if (mounted) setState(() => _error = _problemText(context, p));
@@ -580,6 +603,50 @@ class _SettingsSheetState extends State<_SettingsSheet> {
               maxLength: 200,
               decoration: InputDecoration(labelText: s.t('delivery_area'), hintText: s.t('delivery_area_hint')),
             ),
+            SwitchListTile(
+              key: const Key('use_slots'),
+              contentPadding: EdgeInsets.zero,
+              title: Text(s.t('slots_use')),
+              subtitle: Text(s.t('slots_use_help')),
+              value: _useSlots,
+              onChanged: (v) => setState(() => _useSlots = v),
+            ),
+            if (_useSlots) ...[
+              Row(children: [
+                Expanded(
+                    child: _menu(s.t('slots_from'), _slots.from, _halfHours.sublist(0, _halfHours.length - 1), (v) => v,
+                        (v) => _slots = _slots.copyWith(from: v))),
+                const SizedBox(width: G1.s3),
+                Expanded(
+                    child: _menu(s.t('slots_to'), _slots.to, _halfHours.sublist(1), (v) => v,
+                        (v) => _slots = _slots.copyWith(to: v))),
+              ]),
+              const SizedBox(height: G1.s2),
+              Row(children: [
+                Expanded(
+                    child: _menu(s.t('slots_length'), _slots.minutes, const [60, 120, 180, 240],
+                        (v) => s.t('n_hours', {'n': '${v ~/ 60}'}), (v) => _slots = _slots.copyWith(minutes: v))),
+                const SizedBox(width: G1.s3),
+                Expanded(
+                    child: _menu(s.t('slots_capacity'), _slots.capacity, [for (var i = 1; i <= 50; i++) i], (v) => '$v',
+                        (v) => _slots = _slots.copyWith(capacity: v))),
+              ]),
+              const SizedBox(height: G1.s2),
+              Row(children: [
+                Expanded(
+                    child: _menu(s.t('slots_days'), _slots.days, [for (var i = 1; i <= 7; i++) i],
+                        (v) => s.t('n_days', {'n': '$v'}), (v) => _slots = _slots.copyWith(days: v))),
+                const SizedBox(width: G1.s3),
+                Expanded(
+                    child: _menu(
+                        s.t('slots_lead'),
+                        _slots.leadMinutes,
+                        const [0, 30, 60, 120, 180, 240, 720, 1440],
+                        (v) => v < 60 ? s.t('n_minutes', {'n': '$v'}) : s.t('n_hours', {'n': '${v ~/ 60}'}),
+                        (v) => _slots = _slots.copyWith(leadMinutes: v))),
+              ]),
+              const SizedBox(height: G1.s2),
+            ],
           ],
           TextField(
             controller: _about,

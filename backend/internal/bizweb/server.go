@@ -388,6 +388,20 @@ func (s *Server) parseTemplates() error {
 			return v.Format("2 Jan 15:04")
 		},
 		"day": func(t time.Time) string { return t.In(eat).Format("2 Jan 2006") },
+		// hm shows minutes after midnight as "HH:MM".
+		"hm":  func(m int) string { return fmt.Sprintf("%02d:%02d", m/60, m%60) },
+		"div": func(a, b int) int { return a / b },
+		// slot shows a booked delivery time: "Tue 24 Nov, 14:00–16:00" in Addis Ababa time.
+		"slot": func(start, end *time.Time) string {
+			if start == nil || end == nil {
+				return ""
+			}
+			e := end.In(eat).Format("15:04")
+			if e == "00:00" {
+				e = "24:00"
+			}
+			return start.In(eat).Format("Mon 2 Jan, 15:04") + "–" + e
+		},
 		"clock": func(t *time.Time) string {
 			if t == nil {
 				return ""

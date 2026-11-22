@@ -93,6 +93,7 @@ Profile → Business opens the shop for anyone who belongs to one, or the applic
 - **Orders and products** (Business → Orders in the app). The orders screen lists orders in progress, with new ones highlighted and their accept-by time, and finished ones. It refreshes every 15 seconds. Cashiers, managers and owners accept orders, mark them ready (or packed, then sent out, for delivery), hand them over by typing the customer's four-digit code, or decline or cancel them with a note to the customer. Accountants only view.
 - **Products and ordering** (owners and managers): taking orders on or off, pickup and delivery with the fee and area, and products with price, shelf, optional stock, hidden or removed.
 - **Product photos** (Business → Products, then a product): Add photo takes a picture or picks one from the gallery and uploads it at once; Change photo and Remove photo too. Customers see the thumbnails in the shop, and shops see them in their product list.
+- **Delivery times** (shop settings, under Delivery): turn on "Delivery times", then choose the first delivery, when the last one ends, how long each time is, how many orders each can take, how far ahead customers can book and how much notice you need. Orders show their booked time.
 - **Sign in on a computer** (Business → Sign in on a computer): type the code the web business console shows, check which browser it is, and approve with the PIN. The same screen lists the computers signed in, each with Sign out.
 - **Not built yet:** promotions and insights from the design.
 
@@ -100,7 +101,7 @@ Profile → Business opens the shop for anyone who belongs to one, or the applic
 
 - **Explore** lists the shops taking orders, and links to My orders.
 - **A shop** shows its products by shelf, with Add and −/+ buttons that stop at the stock, and "Sold out". A closed shop shows its products but takes no orders.
-- **Checkout** shows the basket, pickup or delivery (address required, with a landmark), a note, and the totals. Paying uses the same fingerprint-then-PIN confirmation as any payment (`confirmPayment` in `screens/pay.dart`). If the customer backs out of the PIN, the order is cancelled so its stock is free again.
+- **Checkout** shows the basket, pickup or delivery (address required, with a landmark), a note, and the totals. Paying uses the same fingerprint-then-PIN confirmation as any payment (`confirmPayment` in `screens/pay.dart`). If the customer backs out of the PIN, the order is cancelled so its stock is free again. At shops with delivery times, delivery orders also need a time: they're grouped by day (Today, Tomorrow, then the date), in Addis Ababa time, with full ones shown but not selectable. If the time fills up meanwhile, the list reloads.
 - **The order screen** shows the steps, the four-digit handover code in large print, the shop's note if it cancelled, and "I have my order" or "Cancel order" when they're allowed. It refreshes every 15 seconds until the order is finished. An order accepted a day ago and not handed over says so and points to "I have my order"; after three days it says our team is checking and the money is safe. The shop's order list shows the same two states.
 
 ## Signing key for dev builds
@@ -114,7 +115,6 @@ Debug APKs are signed with the debug keystore kept in the `g1androidhome` Docker
 - Device keys on iPhone. Android keeps a DPoP key and a biometric-gated payment key in the Android Keystore (`MainActivity.kt`, channel `gebeya/device_keys`). The iOS side (Secure Enclave) isn't written yet, so on iPhone the app uses bearer tokens and the PIN.
 - Push notifications to the lock screen. The bell and the notifications list work (polled every 30 seconds while the app is open). Pushes need a Firebase project: add `google-services.json` and the Firebase messaging plugin, then send the token to `PUT /v1/devices/current/push-token`.
 - Request money, bills and airtime. Their backend modules don't exist yet.
-- Product photos and delivery time slots for orders.
 - PIN reset by SMS code. The server supports it, but the app has no screen for it yet.
 - The Ethiopian calendar and localized date formats.
 - Review of the Afaan Oromo and Tigrinya copy, as above.

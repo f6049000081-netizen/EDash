@@ -197,6 +197,58 @@ void main() {
     expect(more.onPressed, isNull, reason: 'only two in stock');
   });
 
+  testWidgets('a delivery order needs a free delivery time, sent as the slot start', (tester) async {
+    tester.view.physicalSize = const Size(1200, 3600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final eat = toEat(DateTime.now());
+    // Tomorrow 09:00 and 11:00 in Addis Ababa are 06:00 and 08:00 UTC.
+    DateTime at(int utcHour) => DateTime.utc(eat.year, eat.month, eat.day + 1, utcHour);
+    Map<String, dynamic> slot(int h, int left) =>
+        {'start': at(h).toIso8601String(), 'end': at(h + 2).toIso8601String(), 'left': left, 'full': left == 0};
+    final shop = Shop.fromJson({
+      ...shopJson(),
+      'pickup': false,
+      'delivery_slots': {'minutes': 120, 'from': '09:00', 'to': '13:00', 'capacity': 4, 'days': 2, 'lead_minutes': 60},
+    });
+    final basket = Basket(shop)..add(shop.products[1]);
+    Map<String, dynamic>? placed;
+    final seen = await pump(tester, CheckoutScreen(basket: basket), {
+      'GET /v1/shops/m1/slots': (_) => json({
+            'uses_slots': true,
+            'items': [slot(6, 0), slot(8, 3)],
+          }),
+      'POST /v1/orders': (r) {
+        placed = jsonDecode(r.body) as Map<String, dynamic>;
+        return json({'code': 'conflict', 'detail': 'That delivery time just filled up. Choose another.'}, 409);
+      },
+    });
+    expect(find.text('Tomorrow'), findsOneWidget);
+    expect(find.text('09:00–11:00 · full'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).first, 'Bole, behind Edna Mall');
+    await tester.tap(find.textContaining('Pay ETB'));
+    await tester.pumpAndSettle();
+    expect(find.text('Choose a delivery time.'), findsOneWidget);
+    expect(placed, isNull);
+
+    await tester.tap(find.text('09:00–11:00 · full'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('11:00–13:00'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Pay ETB'));
+    await tester.pumpAndSettle();
+    expect(placed!['channel'], 'delivery');
+    expect(DateTime.parse(placed!['slot_start'] as String), at(8), reason: 'the full slot could not be chosen');
+    expect(seen.where((r) => r.url.path == '/v1/shops/m1/slots').length, 2, reason: 'reloaded after the conflict');
+  });
+
+  test('delivery times read and write the same rules', () {
+    const rules = SlotRules(minutes: 60, from: '08:30', to: '20:00', capacity: 3, days: 7, leadMinutes: 120);
+    final back = SlotRules.fromJson(rules.toJson());
+    expect(back.toJson(), rules.toJson());
+    expect(Shop.fromJson(shopJson()).deliverySlots, isNull);
+  });
+
   testWidgets('a closed shop shows its products but takes no orders', (tester) async {
     await pump(tester, const ShopScreen('m1'), {'GET /v1/shops/m1': (_) => json(shopJson(open: false))});
     expect(find.text('Not taking orders right now'), findsOneWidget);

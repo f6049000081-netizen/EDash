@@ -16,6 +16,7 @@ class Shop {
     required this.about,
     required this.productCount,
     this.products = const [],
+    this.deliverySlots,
   });
 
   final String merchantId;
@@ -30,6 +31,7 @@ class Shop {
   final String about;
   final int productCount;
   final List<Product> products;
+  final SlotRules? deliverySlots; // null: the shop delivers as soon as it can
 
   factory Shop.fromJson(Map<String, dynamic> j) => Shop(
         merchantId: j['merchant_id'] as String,
@@ -44,6 +46,8 @@ class Shop {
         about: j['about'] as String? ?? '',
         productCount: (j['product_count'] as num?)?.toInt() ?? 0,
         products: [for (final p in (j['products'] as List?) ?? const []) Product.fromJson(p as Map<String, dynamic>)],
+        deliverySlots:
+            j['delivery_slots'] == null ? null : SlotRules.fromJson(j['delivery_slots'] as Map<String, dynamic>),
       );
 
   /// Products by the shop's own shelf names, in the order the server sent them.
@@ -55,6 +59,69 @@ class Shop {
     return out;
   }
 }
+
+/// A shop's delivery times: slots of [minutes] between [from] and [to] ("HH:MM", Ethiopian time), each
+/// taking up to [capacity] orders, bookable [days] days ahead and at least [leadMinutes] in advance.
+class SlotRules {
+  const SlotRules({
+    this.minutes = 120,
+    this.from = '09:00',
+    this.to = '18:00',
+    this.capacity = 5,
+    this.days = 3,
+    this.leadMinutes = 60,
+  });
+
+  final int minutes;
+  final String from;
+  final String to;
+  final int capacity;
+  final int days;
+  final int leadMinutes;
+
+  factory SlotRules.fromJson(Map<String, dynamic> j) => SlotRules(
+        minutes: (j['minutes'] as num).toInt(),
+        from: j['from'] as String,
+        to: j['to'] as String,
+        capacity: (j['capacity'] as num).toInt(),
+        days: (j['days'] as num).toInt(),
+        leadMinutes: (j['lead_minutes'] as num).toInt(),
+      );
+
+  Map<String, dynamic> toJson() => {
+        'minutes': minutes,
+        'from': from,
+        'to': to,
+        'capacity': capacity,
+        'days': days,
+        'lead_minutes': leadMinutes,
+      };
+
+  SlotRules copyWith({int? minutes, String? from, String? to, int? capacity, int? days, int? leadMinutes}) => SlotRules(
+        minutes: minutes ?? this.minutes,
+        from: from ?? this.from,
+        to: to ?? this.to,
+        capacity: capacity ?? this.capacity,
+        days: days ?? this.days,
+        leadMinutes: leadMinutes ?? this.leadMinutes,
+      );
+}
+
+/// One delivery time a customer can book, and how many places are left.
+class DeliverySlot {
+  DeliverySlot(this.start, this.end, this.left);
+  final DateTime start; // UTC instants; shown in Ethiopian time
+  final DateTime end;
+  final int left;
+  bool get full => left == 0;
+
+  factory DeliverySlot.fromJson(Map<String, dynamic> j) => DeliverySlot(DateTime.parse(j['start'] as String).toUtc(),
+      DateTime.parse(j['end'] as String).toUtc(), (j['left'] as num).toInt());
+}
+
+/// Ethiopian time (UTC+3, no daylight saving): delivery times are always shown in it, wherever the
+/// customer is, because that's when the order arrives.
+DateTime toEat(DateTime t) => t.toUtc().add(const Duration(hours: 3));
 
 class Product {
   Product({
@@ -174,6 +241,8 @@ class Order {
     this.completedAt,
     this.overdue = false,
     this.inReview = false,
+    this.slotStart,
+    this.slotEnd,
   });
 
   final String id;
@@ -201,6 +270,8 @@ class Order {
   final bool overdue; // accepted a day ago and still not handed over
   final bool inReview; // still not handed over after three days: our team settles it
   final DateTime? completedAt;
+  final DateTime? slotStart; // the delivery time booked, UTC
+  final DateTime? slotEnd;
 
   bool get delivery => channel == 'delivery';
   bool get inProgress => const {'placed', 'accepted', 'ready', 'on_the_way'}.contains(status);
@@ -261,6 +332,8 @@ class Order {
       completedAt: _t(j['completed_at']),
       overdue: j['overdue'] as bool? ?? false,
       inReview: j['in_review'] as bool? ?? false,
+      slotStart: j['slot_start'] == null ? null : DateTime.parse(j['slot_start'] as String).toUtc(),
+      slotEnd: j['slot_end'] == null ? null : DateTime.parse(j['slot_end'] as String).toUtc(),
     );
   }
 
@@ -277,8 +350,19 @@ extension CommerceApi on GebeyaApi {
   Future<Shop> shop(String merchantId) async => Shop.fromJson(await api.get('/v1/shops/$merchantId'));
 
   /// Creates the order and its payment. Pass the same [key] when retrying the same checkout.
+  /// The delivery times a customer can book now (full ones included); empty when the shop has none.
+  Future<List<DeliverySlot>> deliverySlots(String merchantId) async {
+    final j = await api.get('/v1/shops/$merchantId/slots');
+    return [for (final s in j['items'] as List) DeliverySlot.fromJson(s as Map<String, dynamic>)];
+  }
+
+  /// Creates the order and its payment. Pass the same [key] when retrying the same checkout.
   Future<Order> placeOrder(Basket basket,
-          {required String channel, String address = '', String note = '', required String key}) async =>
+          {required String channel,
+          String address = '',
+          String note = '',
+          DateTime? slotStart,
+          required String key}) async =>
       Order.fromJson(await api.post(
           '/v1/orders',
           {
@@ -286,6 +370,7 @@ extension CommerceApi on GebeyaApi {
             'channel': channel,
             'items': basket.toJson(),
             if (channel == 'delivery') 'delivery_address': address,
+            if (channel == 'delivery' && slotStart != null) 'slot_start': slotStart.toUtc().toIso8601String(),
             if (note.isNotEmpty) 'note': note,
           },
           idempotencyKey: key));
@@ -311,7 +396,8 @@ extension CommerceApi on GebeyaApi {
           required bool delivery,
           required Money deliveryFee,
           String deliveryArea = '',
-          String about = ''}) async =>
+          String about = '',
+          SlotRules? deliverySlots}) async =>
       Shop.fromJson(await api.put('/v1/merchants/$merchantId/shop', {
         'open': open,
         'pickup': pickup,
@@ -319,6 +405,7 @@ extension CommerceApi on GebeyaApi {
         'delivery_fee': deliveryFee.toJson(),
         'delivery_area': deliveryArea,
         'about': about,
+        'delivery_slots': deliverySlots?.toJson(),
       }));
 
   /// Replaces a product's photo with a JPEG (or PNG/WebP) taken or chosen on the phone.

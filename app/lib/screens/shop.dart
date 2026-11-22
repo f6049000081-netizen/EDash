@@ -376,6 +376,34 @@ class QuantityStepper extends StatelessWidget {
   }
 }
 
+/// A delivery time's day in Addis Ababa: Today, Tomorrow or dd/mm.
+String slotDay(BuildContext context, DateTime start) {
+  final s = S.of(context);
+  final t = toEat(start);
+  final now = toEat(DateTime.now());
+  final day = DateTime.utc(t.year, t.month, t.day);
+  final today = DateTime.utc(now.year, now.month, now.day);
+  final diff = day.difference(today).inDays;
+  if (diff == 0) return s.t('today');
+  if (diff == 1) return s.t('tomorrow');
+  return '${t.day.toString().padLeft(2, '0')}/${t.month.toString().padLeft(2, '0')}';
+}
+
+/// "14:00–16:00" in Addis Ababa time.
+String slotHours(DateTime start, DateTime end) {
+  String hm(DateTime x) {
+    final t = toEat(x);
+    return '${t.hour.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')}';
+  }
+
+  final e = hm(end);
+  return '${hm(start)}–${e == '00:00' ? '24:00' : e}';
+}
+
+/// "Tomorrow, 14:00–16:00".
+String slotWhen(BuildContext context, DateTime start, DateTime end) =>
+    '${slotDay(context, start)}, ${slotHours(start, end)}';
+
 /// The basket, pickup or delivery, and paying.
 class CheckoutScreen extends StatefulWidget {
   const CheckoutScreen({super.key, required this.basket});
@@ -393,6 +421,31 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   String? _error;
   // One key per checkout: a retry after a dropped connection doesn't place a second order.
   String _key = newIdempotencyKey();
+  List<DeliverySlot>? _slots; // loaded when delivery is chosen at a shop with delivery times
+  DeliverySlot? _slot;
+  bool _slotsFailed = false;
+
+  bool get _needsSlot => _channel == 'delivery' && widget.basket.shop.deliverySlots != null;
+
+  @override
+  void initState() {
+    super.initState();
+    if (_needsSlot) WidgetsBinding.instance.addPostFrameCallback((_) => _loadSlots());
+  }
+
+  Future<void> _loadSlots() async {
+    setState(() => _slotsFailed = false);
+    try {
+      final list = await AppScope.read(context).api.deliverySlots(widget.basket.shop.merchantId);
+      if (!mounted) return;
+      setState(() {
+        _slots = list;
+        if (_slot != null && !list.any((x) => x.start == _slot!.start && !x.full)) _slot = null;
+      });
+    } on ApiProblem {
+      if (mounted) setState(() => _slotsFailed = true);
+    }
+  }
 
   @override
   void dispose() {
@@ -407,6 +460,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
       setState(() => _error = s.t('address_needed'));
       return;
     }
+    if (_needsSlot && _slot == null) {
+      setState(() => _error = s.t('slot_needed'));
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
@@ -414,7 +471,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     final app = AppScope.read(context);
     try {
       final order = await app.api.placeOrder(widget.basket,
-          channel: _channel, address: _address.text.trim(), note: _note.text.trim(), key: _key);
+          channel: _channel,
+          address: _address.text.trim(),
+          note: _note.text.trim(),
+          slotStart: _needsSlot ? _slot?.start : null,
+          key: _key);
       final intent = await app.api.intent(order.paymentIntentId!);
       if (!mounted) return;
       final paid = await confirmPayment(context, intent);
@@ -436,9 +497,46 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
     } on ApiProblem catch (p) {
       if (mounted) setState(() => _error = _problemText(context, p));
       if (p.code != 'network') _key = newIdempotencyKey();
+      if (p.status == 409 && _needsSlot && mounted) _loadSlots(); // the time may have filled up
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  Widget _slotPicker(BuildContext context) {
+    final s = S.of(context);
+    final text = Theme.of(context).textTheme;
+    final c = G1.c(context);
+    final list = _slots;
+    if (_slotsFailed) {
+      return Row(children: [
+        Expanded(child: Text(s.t('slots_failed'), style: text.bodyMedium?.copyWith(color: c.danger))),
+        TextButton(onPressed: _loadSlots, child: Text(s.t('retry'))),
+      ]);
+    }
+    if (list == null) return const Padding(padding: EdgeInsets.all(G1.s3), child: LinearProgressIndicator());
+    if (!list.any((x) => !x.full)) return Text(s.t('slots_none'), style: text.bodyMedium?.copyWith(color: c.danger));
+    final days = <String, List<DeliverySlot>>{};
+    for (final x in list) {
+      days.putIfAbsent(slotDay(context, x.start), () => []).add(x);
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(s.t('slot_choose'), style: text.titleSmall),
+      Text(s.t('slot_time_zone'), style: text.bodySmall),
+      for (final d in days.entries) ...[
+        const SizedBox(height: G1.s2),
+        Text(d.key, style: text.labelLarge),
+        const SizedBox(height: G1.s1),
+        Wrap(spacing: G1.s2, runSpacing: G1.s2, children: [
+          for (final x in d.value)
+            ChoiceChip(
+              label: Text(x.full ? '${slotHours(x.start, x.end)} · ${s.t('slot_full')}' : slotHours(x.start, x.end)),
+              selected: _slot?.start == x.start,
+              onSelected: x.full ? null : (_) => setState(() => _slot = x),
+            ),
+        ]),
+      ],
+    ]);
   }
 
   @override
@@ -500,7 +598,10 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                     value: 'delivery', label: Text(s.t('delivery')), icon: const Icon(Icons.delivery_dining_outlined)),
               ],
               selected: {_channel},
-              onSelectionChanged: (v) => setState(() => _channel = v.first),
+              onSelectionChanged: (v) {
+                setState(() => _channel = v.first);
+                if (_needsSlot && _slots == null) _loadSlots();
+              },
             )
           else
             Text(s.t(_channel == 'pickup' ? 'pickup_only' : 'delivery_only'), style: text.bodyMedium),
@@ -515,6 +616,7 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
               maxLines: 2,
               decoration: InputDecoration(labelText: s.t('address_label'), hintText: s.t('address_hint')),
             ),
+            if (_needsSlot) ...[_slotPicker(context), const SizedBox(height: G1.s3)],
           ] else
             Text(s.t('pickup_explain'), style: text.bodySmall),
           const SizedBox(height: G1.s2),
@@ -727,6 +829,7 @@ class _OrderScreenState extends State<OrderScreen> {
                   [
                     s.t(o.delivery ? 'delivery' : 'pickup'),
                     if (o.delivery) o.deliveryAddress,
+                    if (o.slotStart != null) s.t('slot_arrives', {'when': slotWhen(context, o.slotStart!, o.slotEnd!)}),
                     formatWhen(context, o.createdAt),
                   ].join(' · '),
                   style: text.bodySmall),

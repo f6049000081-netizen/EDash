@@ -359,7 +359,34 @@ type storefrontData struct {
 	Shop                   *commerce.Shop
 	Open, Pickup, Delivery bool
 	Fee, Area, About       string
+	UseSlots               bool
+	Slots                  commerce.SlotRules // shown even when off, as the starting values
 }
+
+// defaultSlots are the delivery times offered when a shop first turns them on.
+var defaultSlots = commerce.SlotRules{Minutes: 120, From: 9 * 60, To: 18 * 60, Capacity: 5, Days: 3, Lead: 60}
+
+// storefrontChoices are the menus on the delivery-times form.
+type storefrontChoices struct {
+	HalfHours                        []int
+	Lengths, Capacities, Days, Leads []int
+}
+
+var choices = func() storefrontChoices {
+	c := storefrontChoices{Lengths: commerce.SlotLengths, Leads: []int{0, 30, 60, 120, 180, 240, 720, 1440}}
+	for m := 0; m <= 24*60; m += 30 {
+		c.HalfHours = append(c.HalfHours, m)
+	}
+	for i := 1; i <= 50; i++ {
+		c.Capacities = append(c.Capacities, i)
+	}
+	for i := 1; i <= 7; i++ {
+		c.Days = append(c.Days, i)
+	}
+	return c
+}()
+
+func (d storefrontData) Choices() storefrontChoices { return choices }
 
 func (s *Server) storefront(w http.ResponseWriter, r *http.Request, sess *Session) {
 	shop, err := s.Shops.ShopSettings(r.Context(), sess.UserID, sess.MerchantID)
@@ -368,8 +395,20 @@ func (s *Server) storefront(w http.ResponseWriter, r *http.Request, sess *Sessio
 		return
 	}
 	d := storefrontData{Shop: shop, Open: shop.Open, Pickup: shop.Pickup, Delivery: shop.Delivery,
-		Fee: shop.DeliveryFee.Decimal(), Area: shop.DeliveryArea, About: shop.About}
+		Fee: shop.DeliveryFee.Decimal(), Area: shop.DeliveryArea, About: shop.About, Slots: defaultSlots}
+	if shop.Slots != nil {
+		d.UseSlots, d.Slots = true, *shop.Slots
+	}
 	s.renderPage(w, r, http.StatusOK, "storefront", sess, page{Data: d})
+}
+
+// formInt reads a number from the form; -1 when it isn't one, which the shop rules refuse.
+func formInt(r *http.Request, name string) int {
+	n, err := strconv.Atoi(strings.TrimSpace(r.PostFormValue(name)))
+	if err != nil {
+		return -1
+	}
+	return n
 }
 
 func (s *Server) storefrontSave(w http.ResponseWriter, r *http.Request, sess *Session) {
@@ -382,7 +421,9 @@ func (s *Server) storefrontSave(w http.ResponseWriter, r *http.Request, sess *Se
 	}
 	d := storefrontData{Shop: shop, Open: r.PostFormValue("open") != "", Pickup: r.PostFormValue("pickup") != "",
 		Delivery: r.PostFormValue("delivery") != "", Fee: strings.TrimSpace(r.PostFormValue("fee")),
-		Area: r.PostFormValue("area"), About: r.PostFormValue("about")}
+		Area: r.PostFormValue("area"), About: r.PostFormValue("about"), UseSlots: r.PostFormValue("slots") != "",
+		Slots: commerce.SlotRules{Minutes: formInt(r, "slot_minutes"), From: formInt(r, "slot_from"), To: formInt(r, "slot_to"),
+			Capacity: formInt(r, "slot_capacity"), Days: formInt(r, "slot_days"), Lead: formInt(r, "slot_lead")}}
 	again := func(msg string) {
 		s.renderPage(w, r, http.StatusUnprocessableEntity, "storefront", sess, page{Data: d, Error: msg})
 	}
@@ -395,8 +436,13 @@ func (s *Server) storefrontSave(w http.ResponseWriter, r *http.Request, sess *Se
 		again(translate(l, "m_fee"))
 		return
 	}
-	_, err = s.Shops.UpdateShop(ctx, sess.UserID, sess.MerchantID, commerce.ShopUpdate{Open: d.Open, Pickup: d.Pickup,
-		Delivery: d.Delivery, DeliveryFee: fee, DeliveryArea: d.Area, About: d.About})
+	u := commerce.ShopUpdate{Open: d.Open, Pickup: d.Pickup, Delivery: d.Delivery, DeliveryFee: fee, DeliveryArea: d.Area,
+		About: d.About}
+	if d.UseSlots {
+		rules := d.Slots
+		u.Slots = &rules
+	}
+	_, err = s.Shops.UpdateShop(ctx, sess.UserID, sess.MerchantID, u)
 	s.afterShopSave(w, r, sess, err, "/business/storefront", again)
 }
 
@@ -409,7 +455,8 @@ func (s *Server) storefrontOpen(w http.ResponseWriter, r *http.Request, sess *Se
 		return
 	}
 	_, err = s.Shops.UpdateShop(ctx, sess.UserID, sess.MerchantID, commerce.ShopUpdate{Open: r.PostFormValue("open") == "1",
-		Pickup: shop.Pickup, Delivery: shop.Delivery, DeliveryFee: shop.DeliveryFee, DeliveryArea: shop.DeliveryArea, About: shop.About})
+		Pickup: shop.Pickup, Delivery: shop.Delivery, DeliveryFee: shop.DeliveryFee, DeliveryArea: shop.DeliveryArea, About: shop.About,
+		Slots: shop.Slots})
 	s.afterShopSave(w, r, sess, err, "/business/", func(msg string) {
 		http.Redirect(w, r, "/business/?msg=conflict", http.StatusSeeOther)
 	})

@@ -130,4 +130,9 @@ form.line label { margin: 0; }
 
 img.photo { display: block; max-width: 100%; height: auto; border-radius: 14px; margin: 8px 0 16px; background: var(--surface2); }
 .thumbcell { width: 56px; }
+fieldset.slots { border: 1px solid var(--line); border-radius: 14px; padding: 12px 16px 16px; margin: 8px 0 12px; }
+fieldset.slots legend { padding: 0 6px; font-weight: 600; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+.grid2 select { width: 100%; }
+@media (max-width: 480px) { .grid2 { grid-template-columns: 1fr; } }
 .thumb { display: block; width: 48px; height: 48px; border-radius: 10px; object-fit: cover; background: var(--surface2); }

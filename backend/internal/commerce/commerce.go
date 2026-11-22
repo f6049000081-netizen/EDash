@@ -39,9 +39,10 @@ type Service struct {
 
 	// AcceptWithin: paid orders the shop hasn't accepted by then are cancelled and refunded.
 	AcceptWithin time.Duration
-	// RemindAfter: accepted orders not handed over this long after accepting remind the shop and the
-	// customer. ReviewAfter: still not handed over, they go to operations, who refund the customer or pay
-	// the shop. The money stays in escrow until then: nothing is decided automatically.
+	// RemindAfter: accepted orders not handed over this long after accepting (or after the end of their
+	// booked delivery time, if later) remind the shop and the customer. ReviewAfter: still not handed
+	// over, they go to operations, who refund the customer or pay the shop. The money stays in escrow
+	// until then: nothing is decided automatically.
 	RemindAfter time.Duration
 	ReviewAfter time.Duration
 
@@ -117,7 +118,8 @@ type Shop struct {
 	DeliveryFee  money.Money
 	DeliveryArea string
 	About        string
-	Products     []Product // Shop and ShopSettings only
+	Slots        *SlotRules // delivery times; nil: as soon as the shop can
+	Products     []Product  // Shop and ShopSettings only
 	ProductCount int
 }
 
@@ -136,14 +138,19 @@ type Product struct {
 func (p Product) SoldOut() bool { return p.Stock != nil && *p.Stock == 0 }
 
 const shopCols = `m.id, m.trade_name, m.category_code, COALESCE(m.city, ''), s.open, s.pickup, s.delivery,
-	s.delivery_fee_minor, COALESCE(s.delivery_area, ''), COALESCE(s.about, '')`
+	s.delivery_fee_minor, COALESCE(s.delivery_area, ''), COALESCE(s.about, ''), s.slot_minutes, s.slot_from, s.slot_to,
+	s.slot_capacity, s.slot_days, s.slot_lead_minutes`
 
 func scanShop(row pgx.Row, extra ...any) (*Shop, error) {
 	sh := &Shop{}
 	var fee int64
+	var mins, from, to, capacity, days, lead *int
 	err := row.Scan(append([]any{&sh.MerchantID, &sh.Name, &sh.Category, &sh.City, &sh.Open, &sh.Pickup, &sh.Delivery,
-		&fee, &sh.DeliveryArea, &sh.About}, extra...)...)
+		&fee, &sh.DeliveryArea, &sh.About, &mins, &from, &to, &capacity, &days, &lead}, extra...)...)
 	sh.DeliveryFee = money.New(fee, money.ETB)
+	if mins != nil && from != nil && to != nil && capacity != nil && days != nil && lead != nil {
+		sh.Slots = &SlotRules{Minutes: *mins, From: *from, To: *to, Capacity: *capacity, Days: *days, Lead: *lead}
+	}
 	return sh, err
 }
 
@@ -221,7 +228,8 @@ func (s *Service) ShopSettings(ctx context.Context, user, merchant uuid.UUID) (*
 	}
 	sh, err := scanShop(s.Pool.QueryRow(ctx, `
 		SELECT m.id, m.trade_name, m.category_code, COALESCE(m.city, ''), COALESCE(s.open, false), COALESCE(s.pickup, true),
-		       COALESCE(s.delivery, false), COALESCE(s.delivery_fee_minor, 0), COALESCE(s.delivery_area, ''), COALESCE(s.about, '')
+		       COALESCE(s.delivery, false), COALESCE(s.delivery_fee_minor, 0), COALESCE(s.delivery_area, ''), COALESCE(s.about, ''),
+		       s.slot_minutes, s.slot_from, s.slot_to, s.slot_capacity, s.slot_days, s.slot_lead_minutes
 		FROM merchant.merchants m LEFT JOIN commerce.shops s ON s.merchant_id = m.id WHERE m.id = $1`, merchant))
 	if err != nil {
 		return nil, err
@@ -237,6 +245,7 @@ type ShopUpdate struct {
 	Open, Pickup, Delivery bool
 	DeliveryFee            money.Money
 	DeliveryArea, About    string
+	Slots                  *SlotRules // nil: no delivery times
 }
 
 // UpdateShop saves the shop's ordering settings. Opening needs an approved shop and something on sale.
@@ -253,6 +262,16 @@ func (s *Service) UpdateShop(ctx context.Context, user, merchant uuid.UUID, u Sh
 		return nil, &ValidationError{"The shop description can be up to 500 characters."}
 	case u.Delivery && u.DeliveryArea == "":
 		return nil, &ValidationError{"Say where you deliver, for example \"Bole and Kazanchis\"."}
+	}
+	if !u.Delivery {
+		u.Slots = nil // delivery times only apply to delivery
+	}
+	var mins, from, to, capacity, days, lead *int
+	if r := u.Slots; r != nil {
+		if err := r.check(); err != nil {
+			return nil, err
+		}
+		mins, from, to, capacity, days, lead = &r.Minutes, &r.From, &r.To, &r.Capacity, &r.Days, &r.Lead
 	}
 	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		if err := s.requireRole(ctx, tx, user, merchant, manageRoles); err != nil {
@@ -273,11 +292,14 @@ func (s *Service) UpdateShop(ctx context.Context, user, merchant uuid.UUID, u Sh
 			}
 		}
 		_, err := tx.Exec(ctx, `
-			INSERT INTO commerce.shops (merchant_id, open, pickup, delivery, delivery_fee_minor, delivery_area, about, updated_at)
-			VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), NULLIF($7, ''), now())
+			INSERT INTO commerce.shops (merchant_id, open, pickup, delivery, delivery_fee_minor, delivery_area, about,
+				slot_minutes, slot_from, slot_to, slot_capacity, slot_days, slot_lead_minutes, updated_at)
+			VALUES ($1, $2, $3, $4, $5, NULLIF($6, ''), NULLIF($7, ''), $8, $9, $10, $11, $12, $13, now())
 			ON CONFLICT (merchant_id) DO UPDATE SET open = $2, pickup = $3, delivery = $4, delivery_fee_minor = $5,
-				delivery_area = NULLIF($6, ''), about = NULLIF($7, ''), updated_at = now()`,
-			merchant, u.Open, u.Pickup, u.Delivery, u.DeliveryFee.AmountMinor, u.DeliveryArea, u.About)
+				delivery_area = NULLIF($6, ''), about = NULLIF($7, ''), slot_minutes = $8, slot_from = $9, slot_to = $10,
+				slot_capacity = $11, slot_days = $12, slot_lead_minutes = $13, updated_at = now()`,
+			merchant, u.Open, u.Pickup, u.Delivery, u.DeliveryFee.AmountMinor, u.DeliveryArea, u.About,
+			mins, from, to, capacity, days, lead)
 		return err
 	})
 	if err != nil {

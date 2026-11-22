@@ -5,6 +5,7 @@
   <div><a href="/business/orders">{{.T "back_orders"}}</a>
     <h1>{{.T "order_title" "number" $o.Number}} {{template "status" $o.Status}}{{.T (printf "st_%s" $o.Status)}}</span></h1>
     <p class="muted">{{.T $o.Channel}} · {{when $o.PlacedAt}}</p>
+    {{if $o.SlotStart}}<p class="strong">{{.T "deliver_at" "when" (slot $o.SlotStart $o.SlotEnd)}}</p>{{end}}
   </div>
 </header>
 {{if and (eq $o.Status "placed") $o.AcceptBy}}<p class="flash warn">{{.T "accept_by" "time" (clock $o.AcceptBy)}}</p>{{end}}

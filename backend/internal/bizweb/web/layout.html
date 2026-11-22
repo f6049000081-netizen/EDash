@@ -73,7 +73,7 @@
   <tr>
     <td><a href="/business/orders/{{.ID}}" class="strong">{{.Number}}</a></td>
     <td>{{.CustomerName}}</td>
-    <td class="muted">{{$p.T .Channel}} · {{$n := itemCount .}}{{if eq $n 1}}{{$p.T "one_item"}}{{else}}{{$p.T "n_items" "n" $n}}{{end}}</td>
+    <td class="muted">{{$p.T .Channel}} · {{$n := itemCount .}}{{if eq $n 1}}{{$p.T "one_item"}}{{else}}{{$p.T "n_items" "n" $n}}{{end}}{{if .SlotStart}}<br><span class="strong">{{slot .SlotStart .SlotEnd}}</span>{{end}}</td>
     <td class="num strong">{{etb .Total}}</td>
     <td>{{template "status" .Status}}{{$p.T (printf "st_%s" .Status)}}</span>{{if and (eq .Status "placed") .AcceptBy}} <span class="muted">· {{clock .AcceptBy}}</span>{{end}}</td>
     <td class="muted">{{when .PlacedAt}}</td>
