@@ -66,6 +66,18 @@ class NoDeviceKeys implements DeviceKeys {
       throw BiometricException(BiometricOutcome.unavailable);
 }
 
+/// The phone's maker and model ("Samsung SM-A515F"), shown in the signed-in devices list. Falls back to
+/// "Android" or "iPhone" where the native side doesn't answer.
+Future<String> deviceName({required bool ios}) async {
+  try {
+    final n = await const MethodChannel('gebeya/device_keys').invokeMethod<String>('deviceName');
+    if (n != null && n.trim().isNotEmpty) return n.trim().length > 100 ? n.trim().substring(0, 100) : n.trim();
+  } on Object {
+    // no native side (iOS for now, tests)
+  }
+  return ios ? 'iPhone' : 'Android';
+}
+
 /// The Android implementation, over the "gebeya/device_keys" channel.
 class ChannelDeviceKeys implements DeviceKeys {
   static const _ch = MethodChannel('gebeya/device_keys');

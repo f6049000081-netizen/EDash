@@ -25,7 +25,7 @@ import (
 var Topics = []string{
 	"payment.succeeded", "payment.failed", "payment.held",
 	"identity.signed_in", "identity.pin_reset", "identity.pin_changed", "identity.refresh_token_reused",
-	"identity.biometric_enrolled", "identity.account_frozen", "identity.account_unfrozen", "identity.web_signed_in",
+	"identity.biometric_enrolled", "identity.account_frozen", "identity.account_unfrozen", "identity.web_signed_in", "identity.device_signed_out",
 	"payout.settled", "payout.on_hold", "merchant.payout_destination_changed", "merchant.applied", "merchant.approved",
 	"merchant.rejected", "merchant.suspended", "merchant.reinstated", "merchant.document_rejected",
 	"order.placed", "order.accepted", "order.ready", "order.on_the_way", "order.delivered", "order.cancelled",
@@ -77,6 +77,7 @@ type identityEvent struct {
 	Platform  string    `json:"platform"`
 	Purpose   string    `json:"purpose"`
 	Browser   string    `json:"browser"` // identity.web_signed_in
+	Model     string    `json:"model"`   // identity.device_signed_out
 	Shop      string    `json:"shop"`
 }
 
@@ -211,6 +212,12 @@ func (s *Service) security(ctx context.Context, m outbox.Message, ev identityEve
 	case "identity.web_signed_in":
 		kind = "web_signed_in"
 		args["browser"], args["shop"] = ev.Browser, ev.Shop
+	case "identity.device_signed_out":
+		kind = "device_signed_out"
+		args["device"] = ev.Model
+		if args["device"] == "" {
+			args["device"] = map[string]string{"android": "Android", "ios": "iPhone", "web": "web"}[ev.Platform]
+		}
 	default:
 		return nil
 	}

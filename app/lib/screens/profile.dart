@@ -7,6 +7,7 @@ import '../l10n/strings.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
 import 'business.dart';
+import 'devices.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({super.key});
@@ -96,6 +97,13 @@ class ProfileScreen extends StatelessWidget {
           const SizedBox(height: G1.s6),
           card([
             const BiometricTile(),
+            ListTile(
+              leading: const Icon(Icons.devices_outlined),
+              title: Text(s.t('devices_title')),
+              subtitle: Text(s.t('devices_tile_sub')),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const DevicesScreen())),
+            ),
             ListTile(
               leading: const Icon(Icons.password),
               title: Text(s.t('change_pin')),

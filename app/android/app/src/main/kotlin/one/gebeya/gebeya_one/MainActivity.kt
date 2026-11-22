@@ -48,6 +48,11 @@ class MainActivity : FlutterFragmentActivity() {
                         result.success(s.sign())
                     }
                     "dpopReset" -> { deleteKey(dpopAlias); result.success(null) }
+                    // The phone's name for the signed-in devices list, e.g. "Samsung SM-A515F".
+                    "deviceName" -> {
+                        val maker = Build.MANUFACTURER.replaceFirstChar { it.uppercase() }
+                        result.success(if (Build.MODEL.startsWith(maker, ignoreCase = true)) Build.MODEL else "$maker ${Build.MODEL}")
+                    }
                     "biometricAvailable" -> result.success(
                         BiometricManager.from(this).canAuthenticate(BIOMETRIC_STRONG) == BiometricManager.BIOMETRIC_SUCCESS
                     )

@@ -242,6 +242,14 @@ func TestSecurityAlerts(t *testing.T) {
 	if got[3].Body != "Your account was signed in on a new iPhone device. If this wasn't you, reset your PIN now." {
 		t.Errorf("new device: %q", got[3].Body)
 	}
+
+	e.handle(event("identity.device_signed_out", u, map[string]any{"user_id": u, "device_id": second, "platform": "android", "model": "Samsung SM-A515F"}))
+	e.handle(event("identity.device_signed_out", u, map[string]any{"user_id": u, "device_id": first, "platform": "ios", "model": ""}))
+	got = e.list(u)
+	if got[0].Body != "iPhone was signed out of your account. If this wasn't you, change your PIN now." ||
+		got[1].Body != "Samsung SM-A515F was signed out of your account. If this wasn't you, change your PIN now." || got[1].Title != "Device signed out" {
+		t.Errorf("signed out: %q / %q", got[0].Body, got[1].Body)
+	}
 }
 
 func TestMalformedEventIsSkippedNotRetried(t *testing.T) {

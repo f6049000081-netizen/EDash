@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: EDash API
-  version: 0.5.0
+  version: 0.6.0
   summary: Phase 1 contract for the consumer app, merchant app and admin console.
   description: |
     Conventions
@@ -793,6 +793,74 @@ paths:
         '204': { description: Signed out }
         '401': { $ref: '#/components/responses/Problem' }
         '404': { $ref: '#/components/responses/Problem' }
+
+  /v1/me/devices:
+    get:
+      tags: [Auth]
+      summary: Phones signed in to the account, this one first
+      operationId: listDevices
+      responses:
+        '200':
+          description: Devices with at least one live session
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/SignedInDevice' } }
+        '401': { $ref: '#/components/responses/Problem' }
+
+  /v1/me/devices/{id}/sign-out:
+    post:
+      tags: [Auth]
+      summary: Sign out one of the account's other devices (PIN required)
+      description: >-
+        Its sessions end at once, its push token is forgotten and its biometric key is removed. Signing in on
+        it again needs an SMS code. Wrong PINs count toward the lockout. The device in use gets 409 this_device;
+        it signs out with POST /v1/auth/logout.
+      operationId: signOutDevice
+      parameters: [ { $ref: '#/components/parameters/Id' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pin]
+              properties:
+                pin: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '204': { description: Signed out; the user is notified on their devices }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
+        '404': { $ref: '#/components/responses/Problem' }
+        '409': { $ref: '#/components/responses/Problem' }
+
+  /v1/me/devices/sign-out-others:
+    post:
+      tags: [Auth]
+      summary: Sign out every device but this one (PIN required)
+      operationId: signOutOtherDevices
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pin]
+              properties:
+                pin: { type: string, pattern: '^[0-9]{6}$' }
+      responses:
+        '200':
+          description: Done
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  signed_out: { type: integer, minimum: 0 }
+        '401': { $ref: '#/components/responses/Problem' }
+        '403': { $ref: '#/components/responses/Problem' }
 
   /v1/merchants/{id}/team:
     get:
@@ -1754,6 +1822,17 @@ components:
         created_at: { type: string, format: date-time }
         last_seen_at: { type: string, format: date-time }
 
+    SignedInDevice:
+      type: object
+      required: [id, platform, first_seen_at, last_active_at, current, biometric]
+      properties:
+        id: { type: string, format: uuid }
+        platform: { type: string, enum: [android, ios, web] }
+        model: { type: string, description: 'Maker and model as the app reported it, for example Samsung SM-A515F' }
+        first_seen_at: { type: string, format: date-time }
+        last_active_at: { type: string, format: date-time, description: Last sign-in or token refresh }
+        current: { type: boolean }
+        biometric: { type: boolean, description: Payments can be confirmed with the fingerprint or face on it }
     TeamMember:
       type: object
       required: [user_id, role, since, you]

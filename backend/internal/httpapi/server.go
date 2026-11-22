@@ -71,6 +71,7 @@ func (s *Server) Routes() http.Handler {
 		mux.Handle("DELETE /v1/devices/current/biometric-key", authed(s.deleteBiometricKey))
 		mux.Handle("GET /v1/me", authed(s.getMe))
 		mux.Handle("PATCH /v1/me", authed(s.updateMe))
+		s.deviceRoutes(mux, authed)
 	}
 	mux.Handle("POST /v1/topups", mutating(s.startTopUp))
 	mux.HandleFunc("POST /v1/webhooks/rails/{rail}", s.railNotification)

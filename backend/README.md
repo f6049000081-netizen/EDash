@@ -40,6 +40,18 @@ internal/httpapi/     routes and JSON mapping
    - Resets it from a `pin_reset` session, once, within 15 minutes. A reset clears the lockout and signs out every other session.
    - Rejects easy PINs: repeated digits, runs, repeated halves and the end of the user's phone number.
 
+**Signed-in devices** (`internal/identity/devices.go`):
+- `GET /v1/me/devices` lists the phones with a live session: this one first, then the most recently used. Each shows its maker and model as the app reported them, when it was first signed in, when it was last active (last sign-in or token refresh), and whether fingerprint payments are on.
+- `POST /v1/me/devices/{id}/sign-out` signs one other device out, and `POST /v1/me/devices/sign-out-others` signs out all but this one. Both need the PIN, and wrong PINs count toward the lockout.
+- Signing a device out:
+  - ends its sessions at once (requests check the session every time)
+  - forgets its push token
+  - removes its biometric key, so fingerprint payments on it need the PIN to set up again
+  - writes `identity.device_signed_out`, which tells the user on their other devices (am/en)
+- Signing in on it again takes an SMS code, and the device is recognised again.
+- The device in use gets 409 `this_device`; it signs out with `POST /v1/auth/logout`. "Sign out others" also ends older sessions left on this phone, for example from before a reinstall.
+- Checked live on 2026-11-22: a phone and a tablet listed with their models, this device refused, a wrong PIN refused, the tablet signed out (its token stopped working, the phone's didn't), and the notification in Amharic.
+
 **SIM-swap guard.** Anyone who takes over a phone number can receive the reset code. So for 24 hours after a PIN reset, every outgoing payment is held for review (`RECENT_PIN_RESET` in the risk rules) instead of executing.
 
 ## How a payment works

@@ -175,6 +175,39 @@ func TestEndToEndSignInAndPay(t *testing.T) {
 		t.Fatalf("me: %v", me)
 	}
 
+	// Dawit signs in on a phone and a tablet, then signs the tablet out from his phone with the PIN.
+	dawitPhone := phone()
+	dawit := signIn(dawitPhone, "signup", "dawit-phone")
+	if st, p := dawit.do("PUT", "/v1/auth/pin", map[string]any{"new_pin": "582047"}, true); st != http.StatusNoContent {
+		t.Fatalf("set PIN: %d %v", st, p)
+	}
+	tablet := signIn(dawitPhone, "login", "dawit-tablet")
+	_, devs := dawit.do("GET", "/v1/me/devices", nil, false)
+	devItems, _ := devs["items"].([]any)
+	if len(devItems) != 2 || devItems[0].(map[string]any)["current"] != true || devItems[1].(map[string]any)["platform"] != "android" {
+		t.Fatalf("devices: %v", devs)
+	}
+	tabletID := devItems[1].(map[string]any)["id"].(string)
+	thisID := devItems[0].(map[string]any)["id"].(string)
+	if st, p := dawit.do("POST", "/v1/me/devices/"+thisID+"/sign-out", map[string]any{"pin": "582047"}, false); st != http.StatusConflict || p["code"] != "this_device" {
+		t.Errorf("sign out this device: %d %v", st, p)
+	}
+	if st, p := dawit.do("POST", "/v1/me/devices/"+tabletID+"/sign-out", map[string]any{"pin": "000000"}, false); st != http.StatusForbidden || p["code"] != "invalid_pin" {
+		t.Errorf("wrong PIN: %d %v", st, p)
+	}
+	if st, p := alice.do("POST", "/v1/me/devices/"+tabletID+"/sign-out", map[string]any{"pin": "582047"}, false); st != http.StatusNotFound {
+		t.Errorf("someone else's device: %d %v", st, p)
+	}
+	if st, p := dawit.do("POST", "/v1/me/devices/"+tabletID+"/sign-out", map[string]any{"pin": "582047"}, false); st != http.StatusNoContent {
+		t.Fatalf("sign out tablet: %d %v", st, p)
+	}
+	if st, _ := tablet.do("GET", "/v1/me", nil, false); st != http.StatusUnauthorized {
+		t.Errorf("tablet still signed in: %d", st)
+	}
+	if st, p := dawit.do("POST", "/v1/me/devices/sign-out-others", map[string]any{"pin": "582047"}, false); st != http.StatusOK || p["signed_out"] != float64(0) {
+		t.Errorf("sign out others: %d %v", st, p)
+	}
+
 	if st, p := alice.do("POST", "/v1/sandbox/topups", map[string]any{"amount": map[string]any{"amount_minor": 100_000, "currency": "ETB"}}, true); st != http.StatusCreated {
 		t.Fatalf("top-up: %d %v", st, p)
 	}
