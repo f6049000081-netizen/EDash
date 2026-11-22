@@ -8,6 +8,7 @@
   </div>
 </header>
 {{if and (eq $o.Status "placed") $o.AcceptBy}}<p class="flash warn">{{.T "accept_by" "time" (clock $o.AcceptBy)}}</p>{{end}}
+{{if $o.InReview}}<p class="flash warn">{{.T "in_review"}}</p>{{else if $o.Overdue}}<p class="flash warn">{{.T "overdue"}}</p>{{end}}
 
 <section class="cols">
   <div class="stack">

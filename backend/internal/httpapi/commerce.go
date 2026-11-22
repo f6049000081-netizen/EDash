@@ -172,7 +172,7 @@ func orderJSON(o *commerce.Order) map[string]any {
 		"delivery_address": o.DeliveryAddress, "note": o.Note, "payment_intent_id": o.PaymentIntentID,
 		"payment_status": o.PaymentStatus, "cancel_reason": o.CancelReason, "cancel_note": o.CancelNote,
 		"created_at": o.CreatedAt, "placed_at": o.PlacedAt, "accepted_at": o.AcceptedAt, "ready_at": o.ReadyAt,
-		"completed_at": o.CompletedAt, "cancelled_at": o.CancelledAt, "accept_by": o.AcceptBy,
+		"completed_at": o.CompletedAt, "cancelled_at": o.CancelledAt, "accept_by": o.AcceptBy, "overdue": o.Overdue, "in_review": o.InReview,
 	}
 	if o.HandoverCode != "" {
 		m["handover_code"] = o.HandoverCode

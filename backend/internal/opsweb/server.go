@@ -113,6 +113,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /ops/cases/{id}/action", s.authed(s.caseAction))
 	mux.Handle("GET /ops/payments/{id}", s.authed(s.goToCase))
 	mux.Handle("GET /ops/users/{id}", s.authed(s.goToCase))
+	mux.Handle("GET /ops/orders", s.authed(s.orderList))
+	mux.Handle("POST /ops/orders/{id}/action", s.authed(s.orderAction))
 	mux.Handle("GET /ops/staff", s.authed(s.staffPage))
 	mux.Handle("POST /ops/staff", s.authed(s.staffInvite))
 	mux.Handle("POST /ops/staff/{id}/action", s.authed(s.staffAction))
@@ -575,6 +577,42 @@ func (s *Server) payoutRelease(w http.ResponseWriter, r *http.Request, sess *ops
 	s.back(w, r, "/ops/payouts", outcomeCode(out, err))
 }
 
+func (s *Server) orderList(w http.ResponseWriter, r *http.Request, sess *ops.Session) {
+	if !sess.Staff.Can("orders.settle", ops.View) {
+		s.render(w, r, http.StatusForbidden, "forbidden", sess, nil)
+		return
+	}
+	list, err := s.Ops.OrdersToSettle(r.Context(), 200)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	pending, err := s.Ops.Approvals(r.Context(), true, uuid.Nil, 200)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	asked := map[uuid.UUID]ops.ApprovalRow{}
+	for _, a := range pending {
+		if a.TargetType == "order" {
+			asked[a.TargetID] = a
+		}
+	}
+	s.render(w, r, http.StatusOK, "orders", sess, map[string]any{"List": list, "Asked": asked})
+}
+
+func (s *Server) orderAction(w http.ResponseWriter, r *http.Request, sess *ops.Session) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	kind := r.PostFormValue("kind")
+	if err != nil || (kind != "order.refund" && kind != "order.complete") {
+		http.NotFound(w, r)
+		return
+	}
+	out, err := s.Ops.Do(r.Context(), actor(r, sess.Staff), ops.Action{Kind: kind, Target: id, Note: r.PostFormValue("note")})
+	s.logUnexpected(r, err)
+	s.back(w, r, "/ops/orders", outcomeCode(out, err))
+}
+
 func (s *Server) approvalList(w http.ResponseWriter, r *http.Request, sess *ops.Session) {
 	pending, err := s.Ops.Approvals(r.Context(), true, uuid.Nil, 100)
 	if err != nil {
@@ -661,7 +699,9 @@ var labels = map[string]string{
 	"limit_exceeded": "over a limit",
 	"super_admin":    "Super admin", "finance_officer": "Finance officer", "risk_analyst": "Risk analyst",
 	"support_agent": "Support agent", "merchant_ops": "Merchant operations", "content_editor": "Content editor",
-	"left": "Left",
+	"left":         "Left",
+	"order.refund": "Refund the customer", "order.complete": "Pay the shop",
+	"pickup": "Pickup", "delivery": "Delivery", "ready": "Ready", "on_the_way": "On the way",
 }
 
 func (s *Server) parseTemplates() error {
@@ -732,6 +772,8 @@ func (s *Server) parseTemplates() error {
 				return "/ops/payments/" + id
 			case "user":
 				return "/ops/users/" + id
+			case "order":
+				return "/ops/orders"
 			}
 			return "/ops/staff"
 		},

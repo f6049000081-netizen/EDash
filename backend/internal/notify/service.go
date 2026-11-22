@@ -29,6 +29,7 @@ var Topics = []string{
 	"payout.settled", "payout.on_hold", "merchant.payout_destination_changed", "merchant.applied", "merchant.approved",
 	"merchant.rejected", "merchant.suspended", "merchant.reinstated", "merchant.document_rejected",
 	"order.placed", "order.accepted", "order.ready", "order.on_the_way", "order.delivered", "order.cancelled",
+	"order.overdue", "order.review",
 }
 
 // Push is what a device shows. Data lets the app open the right screen.

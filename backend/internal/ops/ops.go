@@ -26,6 +26,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"superapp/backend/internal/commerce"
 	"superapp/backend/internal/kyb"
 	"superapp/backend/internal/merchants"
 	"superapp/backend/internal/payments"
@@ -93,6 +94,7 @@ type Service struct {
 	Payouts   *payouts.Service
 	Payments  *payments.Service
 	KYB       *kyb.Service // nil: no documents (approval then doesn't check them)
+	Commerce  *commerce.Service
 	Now       func() time.Time
 	// ApprovalTTL is how long a request waits for a second person before it lapses.
 	ApprovalTTL time.Duration
@@ -179,6 +181,8 @@ var actionPermission = map[string]string{
 	"staff.roles":        "staff.manage",
 	"staff.suspend":      "staff.manage",
 	"staff.reinstate":    "staff.manage",
+	"order.refund":       "orders.settle",
+	"order.complete":     "orders.settle",
 }
 
 var actionTarget = map[string]string{
@@ -187,6 +191,7 @@ var actionTarget = map[string]string{
 	"payment.release": "payment", "payment.decline": "payment", "user.freeze": "user", "user.unfreeze": "user",
 	"case.escalate": "case", "case.resolve": "case",
 	"staff.invite": "staff", "staff.roles": "staff", "staff.suspend": "staff", "staff.reinstate": "staff",
+	"order.refund": "order", "order.complete": "order",
 }
 
 // Permission is the permission an action kind needs.
@@ -400,6 +405,21 @@ func (s *Service) failed(ctx context.Context, a Actor, kind string, target uuid.
 	})
 }
 
+// orderErr turns commerce's errors into the ones the console shows.
+func orderErr(err error) error {
+	var c *commerce.ConflictError
+	var v *commerce.ValidationError
+	switch {
+	case errors.As(err, &c):
+		return &merchants.ConflictError{Msg: c.Msg}
+	case errors.As(err, &v):
+		return &merchants.ConflictError{Msg: v.Msg}
+	case errors.Is(err, commerce.ErrNotFound):
+		return ErrNotFound
+	}
+	return err
+}
+
 func (s *Service) apply(ctx context.Context, tx pgx.Tx, staff uuid.UUID, act Action) error {
 	switch act.Kind {
 	case "merchant.approve":
@@ -442,6 +462,8 @@ func (s *Service) apply(ctx context.Context, tx pgx.Tx, staff uuid.UUID, act Act
 		return s.applyRisk(ctx, tx, staff, act)
 	case "staff.invite", "staff.roles", "staff.suspend", "staff.reinstate":
 		return s.applyStaff(ctx, tx, staff, act)
+	case "order.refund", "order.complete":
+		return orderErr(s.Commerce.SettleTx(ctx, tx, act.Target, strings.TrimPrefix(act.Kind, "order."), staff))
 	}
 	return fmt.Errorf("ops: unknown action %q", act.Kind)
 }

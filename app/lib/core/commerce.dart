@@ -166,6 +166,8 @@ class Order {
     this.placedAt,
     this.acceptBy,
     this.completedAt,
+    this.overdue = false,
+    this.inReview = false,
   });
 
   final String id;
@@ -190,6 +192,8 @@ class Order {
   final String? customerPhone;
   final DateTime? placedAt;
   final DateTime? acceptBy;
+  final bool overdue; // accepted a day ago and still not handed over
+  final bool inReview; // still not handed over after three days: our team settles it
   final DateTime? completedAt;
 
   bool get delivery => channel == 'delivery';
@@ -249,6 +253,8 @@ class Order {
       placedAt: _t(j['placed_at']),
       acceptBy: _t(j['accept_by']),
       completedAt: _t(j['completed_at']),
+      overdue: j['overdue'] as bool? ?? false,
+      inReview: j['in_review'] as bool? ?? false,
     );
   }
 

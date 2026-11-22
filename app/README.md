@@ -100,7 +100,7 @@ Profile → Business opens the shop for anyone who belongs to one, or the applic
 - **Explore** lists the shops taking orders, and links to My orders.
 - **A shop** shows its products by shelf, with Add and −/+ buttons that stop at the stock, and "Sold out". A closed shop shows its products but takes no orders.
 - **Checkout** shows the basket, pickup or delivery (address required, with a landmark), a note, and the totals. Paying uses the same fingerprint-then-PIN confirmation as any payment (`confirmPayment` in `screens/pay.dart`). If the customer backs out of the PIN, the order is cancelled so its stock is free again.
-- **The order screen** shows the steps, the four-digit handover code in large print, the shop's note if it cancelled, and "I have my order" or "Cancel order" when they're allowed. It refreshes every 15 seconds until the order is finished.
+- **The order screen** shows the steps, the four-digit handover code in large print, the shop's note if it cancelled, and "I have my order" or "Cancel order" when they're allowed. It refreshes every 15 seconds until the order is finished. An order accepted a day ago and not handed over says so and points to "I have my order"; after three days it says our team is checking and the money is safe. The shop's order list shows the same two states.
 
 ## Signing key for dev builds
 

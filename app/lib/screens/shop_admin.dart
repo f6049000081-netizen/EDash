@@ -214,6 +214,12 @@ class _OrderCard extends StatelessWidget {
         if (o.delivery && o.deliveryAddress.isNotEmpty) Text(o.deliveryAddress, style: text.bodySmall),
         if (o.status == 'cancelled')
           Text(s.t('order_cancelled_${o.cancelReason}', {'shop': o.shopName}), style: text.bodySmall),
+        if (o.inProgress && (o.inReview || o.overdue))
+          Padding(
+            padding: const EdgeInsets.only(top: G1.s2),
+            child: Text(s.t(o.inReview ? 'order_in_review_shop' : 'order_overdue_shop'),
+                style: text.bodySmall?.copyWith(color: c.warning)),
+          ),
         if (canHandle && o.inProgress) ...[
           const SizedBox(height: G1.s3),
           Wrap(spacing: G1.s2, runSpacing: G1.s2, children: [

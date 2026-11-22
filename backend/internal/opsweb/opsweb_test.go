@@ -27,6 +27,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"superapp/backend/internal/commerce"
 	"superapp/backend/internal/ledger"
 	"superapp/backend/internal/merchants"
 	"superapp/backend/internal/ops"
@@ -193,6 +194,7 @@ func setup(t *testing.T, amr ...string) *env {
 	e.svc = &ops.Service{Pool: pool, Merchants: &merchants.Service{Pool: pool},
 		Payouts:  payouts.NewService(pool, ledger.New(), &platform.PINVerifier{Pool: pool}),
 		Payments: payments.NewService(pool, ledger.New(), payments.DefaultRules(), &platform.PINVerifier{Pool: pool})}
+	e.svc.Commerce = commerce.New(pool, e.svc.Payments)
 	e.console = httptest.NewUnstartedServer(nil)
 	key := make([]byte, 32)
 	_, _ = rand.Read(key)

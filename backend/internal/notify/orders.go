@@ -67,10 +67,30 @@ func (s *Service) order(ctx context.Context, m outbox.Message, ev orderEvent) er
 	case "order.on_the_way":
 		return s.add(ctx, m, ev.UserID, "order_on_the_way", args, data)
 	case "order.delivered":
+		if ev.Reason == "review" { // settled by operations: the shop hears it was paid too
+			if err := toShop("order_paid_after_review"); err != nil {
+				return err
+			}
+		}
 		return s.add(ctx, m, ev.UserID, "order_delivered", args, data)
+	case "order.overdue":
+		if err := toShop("order_overdue_shop"); err != nil {
+			return err
+		}
+		return s.add(ctx, m, ev.UserID, "order_overdue", args, data)
+	case "order.review":
+		if err := toShop("order_review_shop"); err != nil {
+			return err
+		}
+		return s.add(ctx, m, ev.UserID, "order_review", args, data)
 	case "order.cancelled":
 		if ev.Reason == "customer_cancelled" {
 			return toShop("order_cancelled_by_customer")
+		}
+		if ev.Reason == "not_completed" {
+			if err := toShop("order_refunded_after_review"); err != nil {
+				return err
+			}
 		}
 		kind := "order_cancelled_" + ev.Reason
 		if _, ok := texts["en"][kind+".body"]; !ok {

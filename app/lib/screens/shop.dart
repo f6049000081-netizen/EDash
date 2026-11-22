@@ -609,6 +609,15 @@ class _OrderScreenState extends State<OrderScreen> {
                 liveRegion: true,
                 child: Text(_headline(s, o), style: text.bodyLarge?.copyWith(color: c.inkMuted)),
               ),
+              if (o.inProgress && (o.inReview || o.overdue)) ...[
+                const SizedBox(height: G1.s3),
+                Container(
+                  padding: const EdgeInsets.all(G1.s3),
+                  decoration: BoxDecoration(color: c.warningTint, borderRadius: BorderRadius.circular(G1.rM)),
+                  child: Text(s.t(o.inReview ? 'order_in_review' : 'order_overdue', {'shop': o.shopName}),
+                      style: text.bodyMedium),
+                ),
+              ],
               if (o.stepsDone > 0) ...[
                 const SizedBox(height: G1.s4),
                 _Progress(order: o),

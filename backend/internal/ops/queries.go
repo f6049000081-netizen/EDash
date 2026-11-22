@@ -22,6 +22,7 @@ func MaskPhone(p string) string {
 type Counts struct {
 	Applications, Approvals, HeldPayouts, Suspended int
 	Cases, CasesOverdue                             int
+	OrdersToSettle                                  int
 }
 
 func (s *Service) Counts(ctx context.Context, viewer uuid.UUID) (Counts, error) {
@@ -32,8 +33,10 @@ func (s *Service) Counts(ctx context.Context, viewer uuid.UUID) (Counts, error) 
 		       (SELECT count(*) FROM merchant.payouts WHERE status = 'on_hold'),
 		       (SELECT count(*) FROM merchant.merchants WHERE status = 'suspended'),
 		       (SELECT count(*) FROM risk.cases WHERE status NOT IN ('resolved', 'escalated_aml')),
-		       (SELECT count(*) FROM risk.cases WHERE status NOT IN ('resolved', 'escalated_aml') AND sla_due_at < $1)`, s.now(), viewer).
-		Scan(&c.Applications, &c.Approvals, &c.HeldPayouts, &c.Suspended, &c.Cases, &c.CasesOverdue)
+		       (SELECT count(*) FROM risk.cases WHERE status NOT IN ('resolved', 'escalated_aml') AND sla_due_at < $1),
+		       (SELECT count(*) FROM commerce.orders WHERE review_at IS NOT NULL AND status IN ('accepted', 'ready', 'on_the_way'))`,
+		s.now(), viewer).
+		Scan(&c.Applications, &c.Approvals, &c.HeldPayouts, &c.Suspended, &c.Cases, &c.CasesOverdue, &c.OrdersToSettle)
 	return c, err
 }
 
@@ -138,6 +141,54 @@ func (s *Service) PayoutList(ctx context.Context, status string, merchant uuid.U
 	})
 }
 
+type OrderRow struct {
+	ID         uuid.UUID
+	Number     string
+	MerchantID uuid.UUID
+	Shop       string
+	ShopPhone  string // the owner's, masked
+	Customer   string
+	Phone      string // masked
+	Channel    string
+	Status     string
+	Total      money.Money
+	Items      string
+	Tries      int // wrong handover codes
+	AcceptedAt time.Time
+	ReadyAt    *time.Time
+	ReviewAt   time.Time
+}
+
+// OrdersToSettle lists accepted orders that were never handed over and went to operations, oldest first.
+func (s *Service) OrdersToSettle(ctx context.Context, limit int) ([]OrderRow, error) {
+	rows, err := s.Pool.Query(ctx, `
+		SELECT o.id, o.number, o.merchant_id, m.trade_name, COALESCE(ou.phone_e164, ''), COALESCE(u.display_name, ''),
+		       u.phone_e164, o.channel, o.status, o.total_minor, o.currency,
+		       COALESCE((SELECT string_agg(i.quantity || ' × ' || i.title_snapshot, ', ' ORDER BY i.line_no)
+		                 FROM commerce.order_items i WHERE i.order_id = o.id), ''),
+		       o.handover_tries, o.accepted_at, o.ready_at, o.review_at
+		FROM commerce.orders o JOIN merchant.merchants m ON m.id = o.merchant_id
+		JOIN identity.users u ON u.id = o.user_id
+		LEFT JOIN LATERAL (SELECT user_id FROM merchant.members WHERE merchant_id = m.id AND role = 'owner'
+		                   ORDER BY created_at LIMIT 1) ow ON true
+		LEFT JOIN identity.users ou ON ou.id = ow.user_id
+		WHERE o.review_at IS NOT NULL AND o.status IN ('accepted', 'ready', 'on_the_way')
+		ORDER BY o.review_at LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (OrderRow, error) {
+		var o OrderRow
+		var total int64
+		var cur string
+		err := r.Scan(&o.ID, &o.Number, &o.MerchantID, &o.Shop, &o.ShopPhone, &o.Customer, &o.Phone, &o.Channel, &o.Status,
+			&total, &cur, &o.Items, &o.Tries, &o.AcceptedAt, &o.ReadyAt, &o.ReviewAt)
+		o.Total = money.New(total, money.Currency(cur))
+		o.Phone, o.ShopPhone = MaskPhone(o.Phone), MaskPhone(o.ShopPhone)
+		return o, err
+	})
+}
+
 type ApprovalRow struct {
 	ID           uuid.UUID
 	Kind         string
@@ -160,7 +211,7 @@ type ApprovalRow struct {
 func (s *Service) Approvals(ctx context.Context, pending bool, target uuid.UUID, limit int) ([]ApprovalRow, error) {
 	rows, err := s.Pool.Query(ctx, `
 		SELECT a.id, a.payload->>'kind', a.permission, a.target_type, a.target_id,
-		       COALESCE(m.trade_name, pm.trade_name, NULLIF(tu.display_name, ''), ts.full_name, rc.number, ic.number,
+		       COALESCE(m.trade_name, pm.trade_name, NULLIF(tu.display_name, ''), ts.full_name, rc.number, ic.number, ord.number,
 		                a.payload->'params'->>'name', ''),
 		       a.requested_by, rs.full_name, a.request_note, a.requested_at, a.expires_at,
 		       COALESCE(a.decision, ''), COALESCE(ds.full_name, ''), COALESCE(a.decision_note, ''), a.payload->'params'
@@ -173,6 +224,7 @@ func (s *Service) Approvals(ctx context.Context, pending bool, target uuid.UUID,
 		LEFT JOIN identity.users tu ON a.target_type = 'user' AND tu.id = a.target_id
 		LEFT JOIN admin.staff ts ON a.target_type = 'staff' AND ts.id = a.target_id
 		LEFT JOIN risk.cases rc ON a.target_type = 'case' AND rc.id = a.target_id
+		LEFT JOIN commerce.orders ord ON a.target_type = 'order' AND ord.id = a.target_id
 		LEFT JOIN LATERAL (SELECT c.number FROM risk.case_intents ci JOIN risk.cases c ON c.id = ci.case_id
 		                   WHERE a.target_type = 'payment' AND ci.intent_id = a.target_id LIMIT 1) ic ON true
 		WHERE (($1 AND a.decision IS NULL AND a.expires_at > $2) OR (NOT $1 AND (a.decision IS NOT NULL OR a.expires_at <= $2)))

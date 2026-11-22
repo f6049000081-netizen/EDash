@@ -618,6 +618,8 @@ CREATE TABLE commerce.orders (
     ready_at        TIMESTAMPTZ,
     completed_at    TIMESTAMPTZ,
     cancelled_at    TIMESTAMPTZ,
+    overdue_at      TIMESTAMPTZ,   -- accepted but not handed over in time: the shop and customer were reminded
+    review_at       TIMESTAMPTZ,   -- still not handed over later: passed to operations, who refund or pay the shop
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     CHECK (channel <> 'delivery' OR delivery_address IS NOT NULL)
@@ -625,6 +627,7 @@ CREATE TABLE commerce.orders (
 CREATE INDEX ON commerce.orders (merchant_id, status, created_at DESC);
 CREATE INDEX ON commerce.orders (user_id, created_at DESC);
 CREATE INDEX ON commerce.orders (status, created_at) WHERE status IN ('pending_payment', 'placed');
+CREATE INDEX ON commerce.orders (accepted_at) WHERE status IN ('accepted', 'ready', 'on_the_way');
 
 CREATE TABLE commerce.order_items (
     order_id        UUID NOT NULL REFERENCES commerce.orders(id),
@@ -1014,7 +1017,12 @@ INSERT INTO admin.role_permissions (role_id, permission, grant_level) VALUES
     ('super_admin', 'risk.cases', 'full'), ('risk_analyst', 'risk.cases', 'full'),
     ('finance_officer', 'risk.cases', 'view'), ('support_agent', 'risk.cases', 'view'),
     ('super_admin', 'payments.release', 'approve'), ('risk_analyst', 'payments.release', 'approve'),
-    ('finance_officer', 'payments.release', 'approve');
+    ('finance_officer', 'payments.release', 'approve'),
+    -- Orders accepted but never handed over: refunding the customer or paying the shop moves money, so a
+    -- second person approves either.
+    ('super_admin', 'orders.settle', 'approve'), ('finance_officer', 'orders.settle', 'approve'),
+    ('support_agent', 'orders.settle', 'approve'), ('risk_analyst', 'orders.settle', 'view'),
+    ('merchant_ops', 'orders.settle', 'view');
 
 -- Grants the first staff roles (granted_by must be someone else). It can't sign in.
 INSERT INTO admin.staff (id, email, full_name, sso_subject, status)

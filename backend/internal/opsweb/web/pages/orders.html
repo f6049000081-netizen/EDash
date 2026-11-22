@@ -1,0 +1,46 @@
+{{define "title"}}Unfinished orders{{end}}
+{{define "content"}}
+{{$st := .Session.Staff}}{{$csrf := .Session.CSRF}}{{$asked := .Data.Asked}}
+<h1>Unfinished orders</h1>
+<p class="muted">Orders the shop accepted but never handed over. The shop and the customer were reminded after a day; three days after accepting, the order comes here. The customer's money is still held in escrow. Call both sides, then refund the customer if they didn't get the order, or pay the shop if the customer confirms they have it. Either needs a second person. Until then the shop can still hand it over with the code, and the customer can still confirm in the app.</p>
+<div class="card">
+{{if .Data.List}}
+<div class="scroll"><table>
+  <thead><tr><th>Order</th><th>Shop</th><th>Customer</th><th>Items</th><th class="r">Total</th><th>Where it got to</th><th>Settle</th></tr></thead>
+  <tbody>
+  {{range .Data.List}}
+  <tr>
+    <td><span class="num">{{.Number}}</span><br><span class="muted">{{label .Channel}}</span></td>
+    <td><a href="/ops/merchants/{{.MerchantID}}">{{.Shop}}</a><br><span class="muted">Owner {{.ShopPhone}}</span></td>
+    <td>{{or .Customer "—"}}<br><span class="muted">{{.Phone}}</span></td>
+    <td>{{.Items}}</td>
+    <td class="r num">{{etb .Total}}</td>
+    <td>
+      <span class="pill {{pill .Status}}">{{label .Status}}</span><br>
+      <span class="muted">Accepted {{when .AcceptedAt}}{{if .ReadyAt}}<br>Ready {{when .ReadyAt}}{{end}}<br>Here since {{when .ReviewAt}}{{if .Tries}}<br>{{.Tries}} wrong code{{if ne .Tries 1}}s{{end}}{{end}}</span>
+    </td>
+    <td>
+      {{$a := index $asked .ID}}
+      {{if $a.Kind}}
+        <span class="pill warn">{{label $a.Kind}}: awaiting approval</span><br><span class="muted">Asked by {{$a.Requester}}</span>
+      {{else}}
+      {{if can $st "order.refund" "approve"}}
+      <form method="post" action="/ops/orders/{{.ID}}/action" class="stack">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <label class="sr" for="note-{{.ID}}">What you found out</label>
+        <input id="note-{{.ID}}" name="note" required minlength="10" maxlength="2000" placeholder="What you found out">
+        <div class="buttons">
+          <button name="kind" value="order.refund" class="primary">{{if needsSecond $st "order.refund"}}Ask to refund{{else}}Refund the customer{{end}}</button>
+          <button name="kind" value="order.complete">{{if needsSecond $st "order.complete"}}Ask to pay the shop{{else}}Pay the shop{{end}}</button>
+        </div>
+      </form>
+      {{else}}<span class="muted">—</span>{{end}}
+      {{end}}
+    </td>
+  </tr>
+  {{end}}
+  </tbody>
+</table></div>
+{{else}}<p class="muted">No unfinished orders. Every accepted order was handed over or cancelled in time.</p>{{end}}
+</div>
+{{end}}

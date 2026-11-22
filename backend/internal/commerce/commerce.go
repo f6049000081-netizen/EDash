@@ -35,13 +35,19 @@ type Service struct {
 	PayWithin time.Duration
 	// AcceptWithin: paid orders the shop hasn't accepted by then are cancelled and refunded.
 	AcceptWithin time.Duration
+	// RemindAfter: accepted orders not handed over this long after accepting remind the shop and the
+	// customer. ReviewAfter: still not handed over, they go to operations, who refund the customer or pay
+	// the shop. The money stays in escrow until then: nothing is decided automatically.
+	RemindAfter time.Duration
+	ReviewAfter time.Duration
 
 	now func() time.Time
 }
 
 // New wires the service into payments, so order payments move orders along.
 func New(pool *pgxpool.Pool, pay *payments.Service) *Service {
-	s := &Service{Pool: pool, Payments: pay, PayWithin: 30 * time.Minute, AcceptWithin: 20 * time.Minute}
+	s := &Service{Pool: pool, Payments: pay, PayWithin: 30 * time.Minute, AcceptWithin: 20 * time.Minute,
+		RemindAfter: 24 * time.Hour, ReviewAfter: 72 * time.Hour}
 	pay.Orders = s
 	return s
 }

@@ -42,6 +42,8 @@ type Order struct {
 	CompletedAt     *time.Time
 	CancelledAt     *time.Time
 	AcceptBy        *time.Time // placed orders: when it's cancelled if the shop hasn't accepted
+	Overdue         bool       // accepted but not handed over in time (RemindAfter)
+	InReview        bool       // passed to operations to settle (ReviewAfter)
 }
 
 type Item struct {
@@ -224,7 +226,7 @@ const orderCols = `o.id, o.number, o.status, o.channel, o.merchant_id, m.trade_n
 	o.total_minor, o.currency, COALESCE(o.delivery_address, ''), COALESCE(o.note, ''), o.intent_id,
 	COALESCE(i.status::text, ''), COALESCE(o.handover_code, ''), COALESCE(o.cancel_reason, ''), COALESCE(o.cancel_note, ''),
 	COALESCE(u.display_name, ''), u.phone_e164, o.created_at, o.placed_at, o.accepted_at, o.ready_at, o.completed_at,
-	o.cancelled_at`
+	o.cancelled_at, o.overdue_at IS NOT NULL, o.review_at IS NOT NULL`
 
 const orderFrom = `FROM commerce.orders o JOIN merchant.merchants m ON m.id = o.merchant_id
 	JOIN identity.users u ON u.id = o.user_id LEFT JOIN payments.intents i ON i.id = o.intent_id`
@@ -237,7 +239,10 @@ func (s *Service) scanOrders(ctx context.Context, rows pgx.Rows, forShop bool) (
 		err := r.Scan(&o.ID, &o.Number, &o.Status, &o.Channel, &o.MerchantID, &o.ShopName, &sub, &fee, &total, &cur,
 			&o.DeliveryAddress, &o.Note, &o.PaymentIntentID, &o.PaymentStatus, &o.HandoverCode, &o.CancelReason,
 			&o.CancelNote, &o.CustomerName, &phone, &o.CreatedAt, &o.PlacedAt, &o.AcceptedAt, &o.ReadyAt,
-			&o.CompletedAt, &o.CancelledAt)
+			&o.CompletedAt, &o.CancelledAt, &o.Overdue, &o.InReview)
+		if o.Status != "accepted" && o.Status != "ready" && o.Status != "on_the_way" {
+			o.Overdue, o.InReview = false, false
+		}
 		c := money.Currency(cur)
 		o.Subtotal, o.DeliveryFee, o.Total = money.New(sub, c), money.New(fee, c), money.New(total, c)
 		if forShop {
@@ -538,7 +543,7 @@ func (s *Service) Received(ctx context.Context, user, id uuid.UUID) (*Order, err
 		case "delivered":
 			return nil
 		case "accepted", "ready", "on_the_way":
-			return s.completeTx(ctx, tx, o, "user:"+user.String())
+			return s.completeTx(ctx, tx, o, "")
 		default:
 			return &ConflictError{"You can confirm once the shop has accepted the order."}
 		}
@@ -549,8 +554,9 @@ func (s *Service) Received(ctx context.Context, user, id uuid.UUID) (*Order, err
 	return s.Order(ctx, user, id)
 }
 
-// completeTx hands the order over: the shop is paid from escrow.
-func (s *Service) completeTx(ctx context.Context, tx pgx.Tx, o *lockedOrder, _ string) error {
+// completeTx hands the order over: the shop is paid from escrow. reason is "review" when operations
+// settled it.
+func (s *Service) completeTx(ctx context.Context, tx pgx.Tx, o *lockedOrder, reason string) error {
 	if err := s.Payments.SettleOrderTx(ctx, tx, o.id, o.merchant, o.total); err != nil {
 		return err
 	}
@@ -559,7 +565,7 @@ func (s *Service) completeTx(ctx context.Context, tx pgx.Tx, o *lockedOrder, _ s
 		updated_at = $2 WHERE id = $1`, o.id, now); err != nil {
 		return err
 	}
-	return s.event(ctx, tx, "order.delivered", o, "", "")
+	return s.event(ctx, tx, "order.delivered", o, reason, "")
 }
 
 // ---------------------------------------------------------------------------
@@ -649,7 +655,7 @@ func (s *Service) HandOver(ctx context.Context, user, merchant, id uuid.UUID, co
 			_, err := tx.Exec(ctx, `UPDATE commerce.orders SET handover_tries = handover_tries + 1 WHERE id = $1`, id)
 			return err
 		}
-		return s.completeTx(ctx, tx, o, "user:"+user.String())
+		return s.completeTx(ctx, tx, o, "")
 	})
 	if err != nil {
 		return nil, err
@@ -743,7 +749,94 @@ func (s *Service) RunOnce(ctx context.Context) (int, error) {
 	return n, nil
 }
 
-// Run calls RunOnce every interval until ctx ends.
+// FlagStalled finds accepted orders that were never handed over. After RemindAfter the shop and the
+// customer are reminded (order.overdue); after ReviewAfter the order goes to operations (order.review).
+// Either side can still finish it until operations settles it. It returns how many it flagged.
+func (s *Service) FlagStalled(ctx context.Context) (reminded, reviewed int, err error) {
+	now := s.clock()
+	for _, step := range []struct {
+		col, topic string
+		after      time.Duration
+		n          *int
+	}{
+		{"review_at", "order.review", s.ReviewAfter, &reviewed}, // first, so a long-stalled order isn't also reminded
+		{"overdue_at", "order.overdue", s.RemindAfter, &reminded},
+	} {
+		rows, err := s.Pool.Query(ctx, `
+			SELECT id FROM commerce.orders
+			WHERE status IN ('accepted', 'ready', 'on_the_way') AND accepted_at < $1 AND `+step.col+` IS NULL
+			  AND review_at IS NULL
+			ORDER BY accepted_at LIMIT 200`, now.Add(-step.after))
+		if err != nil {
+			return reminded, reviewed, err
+		}
+		ids, err := pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
+		if err != nil {
+			return reminded, reviewed, err
+		}
+		for _, id := range ids {
+			err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
+				o, err := lockOrder(ctx, tx, id)
+				if err != nil {
+					return err
+				}
+				if o.status != "accepted" && o.status != "ready" && o.status != "on_the_way" {
+					return nil // finished since the query
+				}
+				// Going to review also counts as reminded.
+				tag, err := tx.Exec(ctx, `
+					UPDATE commerce.orders SET review_at = CASE WHEN $3::bool THEN $2::timestamptz END, overdue_at = COALESCE(overdue_at, $2::timestamptz),
+						updated_at = $2
+					WHERE id = $1 AND `+step.col+` IS NULL AND review_at IS NULL`, id, now, step.col == "review_at")
+				if err != nil || tag.RowsAffected() == 0 {
+					return err
+				}
+				*step.n++
+				return s.event(ctx, tx, step.topic, o, "", "")
+			})
+			if err != nil {
+				return reminded, reviewed, err
+			}
+		}
+	}
+	return reminded, reviewed, nil
+}
+
+// ErrNotInReview: operations settle only orders that FlagStalled passed to them.
+var ErrNotInReview = &ConflictError{"Only orders passed to operations after going unfinished can be settled here."}
+
+// SettleTx is operations settling an order that was accepted but never handed over: "refund" cancels it
+// and returns the customer's money; "complete" pays the shop (for when the customer confirmed they have
+// it). staff is recorded as who did it.
+func (s *Service) SettleTx(ctx context.Context, tx pgx.Tx, id uuid.UUID, outcome string, staff uuid.UUID) error {
+	if outcome != "refund" && outcome != "complete" {
+		return &ValidationError{"outcome must be refund or complete"}
+	}
+	o, err := lockOrder(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	switch o.status {
+	case "accepted", "ready", "on_the_way":
+	case "delivered":
+		return &ConflictError{"This order was handed over in the meantime, and the shop was paid."}
+	default:
+		return &ConflictError{"This order is " + strings.ReplaceAll(o.status, "_", " ") + " now; there's nothing to settle."}
+	}
+	var inReview bool
+	if err := tx.QueryRow(ctx, `SELECT review_at IS NOT NULL FROM commerce.orders WHERE id = $1`, id).Scan(&inReview); err != nil {
+		return err
+	}
+	if !inReview {
+		return ErrNotInReview
+	}
+	if outcome == "complete" {
+		return s.completeTx(ctx, tx, o, "review")
+	}
+	return s.cancelTx(ctx, tx, o, "not_completed", "", "staff:"+staff.String())
+}
+
+// Run calls RunOnce and FlagStalled every interval until ctx ends.
 func (s *Service) Run(ctx context.Context, every time.Duration, log interface{ Error(string, ...any) }) {
 	t := time.NewTicker(every)
 	defer t.Stop()
@@ -754,6 +847,9 @@ func (s *Service) Run(ctx context.Context, every time.Duration, log interface{ E
 		case <-t.C:
 			if _, err := s.RunOnce(ctx); err != nil && ctx.Err() == nil {
 				log.Error("order timeouts", "err", err)
+			}
+			if _, _, err := s.FlagStalled(ctx); err != nil && ctx.Err() == nil {
+				log.Error("unfinished orders", "err", err)
 			}
 		}
 	}

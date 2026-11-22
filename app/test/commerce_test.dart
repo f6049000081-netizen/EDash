@@ -52,7 +52,13 @@ Map<String, dynamic> shopJson({bool open = true}) => {
     };
 
 Map<String, dynamic> orderJson(String status,
-        {String channel = 'pickup', String? code, String reason = '', String note = '', bool forShop = false}) =>
+        {String channel = 'pickup',
+        String? code,
+        String reason = '',
+        String note = '',
+        bool forShop = false,
+        bool overdue = false,
+        bool inReview = false}) =>
     {
       'id': 'o1',
       'number': 'OR-100001',
@@ -77,6 +83,8 @@ Map<String, dynamic> orderJson(String status,
       'cancel_reason': reason,
       'cancel_note': note,
       if (forShop) 'customer': {'name': 'Hana T.', 'phone': '••4471'},
+      'overdue': overdue || inReview,
+      'in_review': inReview,
     };
 
 Future<List<http.Request>> pump(
@@ -216,6 +224,28 @@ void main() {
     expect(find.text('Collected. The shop has been paid.'), findsOneWidget);
     expect(find.text('4821'), findsNothing);
     await tester.pumpWidget(const SizedBox()); // stops the poll timer
+  });
+
+  testWidgets('an order that was never handed over says so, then shows the refund', (tester) async {
+    tester.view.physicalSize = const Size(1080, 2400);
+    tester.view.devicePixelRatio = 2.5;
+    addTearDown(tester.view.reset);
+    var body = orderJson('ready', code: '4821', overdue: true);
+    await pump(tester, const OrderScreen('o1'), {'GET /v1/orders/o1': (_) => json(body)});
+    expect(find.textContaining('This is taking a while.'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox());
+
+    body = orderJson('ready', code: '4821', inReview: true);
+    await pump(tester, const OrderScreen('o1'), {'GET /v1/orders/o1': (_) => json(body)});
+    expect(find.textContaining('our team is checking with Abebe Spices'), findsOneWidget);
+    expect(find.text('I have my order'), findsOneWidget, reason: 'the customer can still confirm');
+    await tester.pumpWidget(const SizedBox());
+
+    body = orderJson('cancelled', reason: 'not_completed');
+    await pump(tester, const OrderScreen('o1'), {'GET /v1/orders/o1': (_) => json(body)});
+    expect(find.text("It wasn't handed over, so our team refunded it."), findsOneWidget);
+    expect(find.textContaining('our team is checking'), findsNothing);
+    await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets("a declined order shows the shop's note and the refund", (tester) async {

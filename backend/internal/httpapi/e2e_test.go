@@ -236,7 +236,7 @@ func TestEndToEndSignInAndPay(t *testing.T) {
 	// the dev server). Other packages' tests add outbox rows meanwhile, so run it until Bob's shows up.
 	relay := &outbox.Relay{Pool: pool, Publisher: outbox.Direct{Handlers: []outbox.Handler{notifier}}}
 	var bobNotes map[string]any
-	for i := 0; i < 200; i++ {
+	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); {
 		if _, err := relay.RunOnce(context.Background()); err != nil {
 			t.Fatal(err)
 		}

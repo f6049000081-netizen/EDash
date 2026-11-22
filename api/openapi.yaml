@@ -1681,9 +1681,11 @@ components:
           properties:
             name: { type: string }
             phone: { type: string, description: 'Full on delivery orders in progress, masked otherwise.' }
-        cancel_reason: { type: string, enum: ['', customer_cancelled, shop_declined, shop_cancelled, no_response, payment_failed, payment_not_finished] }
+        cancel_reason: { type: string, enum: ['', customer_cancelled, shop_declined, shop_cancelled, no_response, payment_failed, payment_not_finished, not_completed], description: 'not_completed: accepted but never handed over, and refunded by operations.' }
         cancel_note: { type: string, description: The shop's words to the customer. }
         accept_by: { type: [string, 'null'], format: date-time, description: Placed orders. Cancelled and refunded if the shop hasn't accepted by then. }
+        overdue: { type: boolean, description: "Accepted over a day ago and not handed over yet: the shop and customer were reminded. The customer can confirm with POST /v1/orders/{id}/received." }
+        in_review: { type: boolean, description: "Still not handed over three days after accepting: operations will refund the customer or pay the shop (with a second person's approval). The money stays in escrow until then, and either side can still finish the order." }
         created_at: { type: string, format: date-time }
         placed_at: { type: [string, 'null'], format: date-time }
         accepted_at: { type: [string, 'null'], format: date-time }

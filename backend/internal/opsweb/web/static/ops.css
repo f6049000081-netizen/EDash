@@ -95,3 +95,4 @@ button.link { background: none; min-height: 0; padding: 6px 0 0; color: var(--br
   .side { max-width: none; border-right: 0; border-bottom: 1px solid var(--line); }
   .main { padding: 20px 16px 40px; }
 }
+.buttons { display: flex; flex-wrap: wrap; gap: 6px; }

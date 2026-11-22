@@ -105,7 +105,7 @@ func run(log *slog.Logger) error {
 		// Staff only release or decline held payments; the rules and PIN check are the customer side's.
 		Payments: payments.NewService(pool, ledger.New(), payments.DefaultRules(), &platform.PINVerifier{Pool: pool}),
 	}
-	commerce.New(pool, svc.Payments) // a released order payment moves its order on
+	svc.Commerce = commerce.New(pool, svc.Payments) // a released order payment moves its order on
 	if svc.KYB, err = kyb.FromEnv(ctx, pool, os.Getenv); err != nil {
 		return err
 	}

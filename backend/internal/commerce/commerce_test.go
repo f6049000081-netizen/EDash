@@ -401,3 +401,135 @@ func TestCustomerConfirmsWhenTheCodeIsLockedOut(t *testing.T) {
 		t.Errorf("settlement %d", s)
 	}
 }
+
+func TestUnfinishedOrdersAreRemindedThenSettledByOperations(t *testing.T) {
+	e := setup(t)
+	owner, shop, injera, _ := e.shop()
+	hana := e.user("Hana")
+	e.fund(hana, 100000)
+	accepted := func() *commerce.Order {
+		t.Helper()
+		o, err := e.svc.Place(e.ctx, hana, commerce.PlaceRequest{MerchantID: shop, Channel: "pickup",
+			Items: []commerce.LineRequest{{ProductID: injera, Quantity: 1}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.checkout(hana, o)
+		if _, err := e.svc.Advance(e.ctx, owner, shop, o.ID, "accept"); err != nil {
+			t.Fatal(err)
+		}
+		return o
+	}
+	ago := func(id uuid.UUID, hours int) {
+		e.exec(`UPDATE commerce.orders SET accepted_at = now() - make_interval(hours => $2) WHERE id = $1`, id, hours)
+	}
+	topics := func(id uuid.UUID) string {
+		rows, _ := pool.Query(e.ctx, `SELECT topic FROM platform.outbox WHERE aggregate_id = $1 ORDER BY id`, id)
+		defer rows.Close()
+		var out []string
+		for rows.Next() {
+			var tp string
+			_ = rows.Scan(&tp)
+			out = append(out, tp)
+		}
+		return strings.Join(out, ",")
+	}
+	settle := func(id uuid.UUID, outcome string) error {
+		tx, err := pool.Begin(e.ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback(e.ctx) }()
+		if err := e.svc.SettleTx(e.ctx, tx, id, outcome, uuid.New()); err != nil {
+			return err
+		}
+		return tx.Commit(e.ctx)
+	}
+
+	a, b, fresh := accepted(), accepted(), accepted()
+	if w := e.wallet(hana); w != 100000-3*32000 {
+		t.Fatalf("wallet after three orders = %d", w)
+	}
+	ago(a.ID, 25)
+	ago(b.ID, 80) // stalled for long: goes straight to review, without a separate reminder
+	if _, _, err := e.svc.FlagStalled(e.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if o := e.order(hana, a.ID); !o.Overdue || o.InReview {
+		t.Fatalf("a day after accepting: overdue %v, in review %v", o.Overdue, o.InReview)
+	}
+	if o := e.order(hana, b.ID); !o.Overdue || !o.InReview {
+		t.Fatalf("three days after accepting: overdue %v, in review %v", o.Overdue, o.InReview)
+	}
+	if o := e.order(hana, fresh.ID); o.Overdue || o.InReview {
+		t.Fatal("a fresh order was flagged")
+	}
+	if got := topics(a.ID); !strings.HasSuffix(got, "order.accepted,order.overdue") {
+		t.Fatalf("a's events: %s", got)
+	}
+	if got := topics(b.ID); !strings.HasSuffix(got, "order.accepted,order.review") {
+		t.Fatalf("b's events: %s", got)
+	}
+	// Running again changes nothing: each step happens once.
+	if _, _, err := e.svc.FlagStalled(e.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := topics(a.ID); strings.Count(got, "order.overdue") != 1 {
+		t.Fatalf("reminded twice: %s", got)
+	}
+
+	// Only orders passed to operations can be settled.
+	if err := settle(a.ID, "refund"); !errors.Is(err, commerce.ErrNotInReview) {
+		t.Fatalf("settling an order not in review: %v", err)
+	}
+	ago(a.ID, 73)
+	if _, _, err := e.svc.FlagStalled(e.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !e.order(hana, a.ID).InReview {
+		t.Fatal("a didn't go to review")
+	}
+
+	// Refunded: the customer gets the money back and the stock returns.
+	stockBefore := e.stock(injera)
+	if err := settle(a.ID, "refund"); err != nil {
+		t.Fatal(err)
+	}
+	if o := e.order(hana, a.ID); o.Status != "cancelled" || o.CancelReason != "not_completed" || o.InReview {
+		t.Fatalf("after refund: %s %s in review %v", o.Status, o.CancelReason, o.InReview)
+	}
+	if e.wallet(hana) != 100000-2*32000 || e.stock(injera) != stockBefore+1 {
+		t.Fatalf("refund: wallet %d, stock %d", e.wallet(hana), e.stock(injera))
+	}
+	if err := settle(a.ID, "complete"); err == nil {
+		t.Fatal("a refunded order was paid to the shop")
+	}
+
+	// Paid to the shop: the customer confirmed on the phone that they have it.
+	if err := settle(b.ID, "complete"); err != nil {
+		t.Fatal(err)
+	}
+	if o := e.order(hana, b.ID); o.Status != "delivered" || o.HandoverCode != "" {
+		t.Fatalf("after paying the shop: %s", o.Status)
+	}
+	if s := e.balance(ledger.MerchantSettlement, ledger.OwnerMerchant, shop); s != 31680 {
+		t.Fatalf("shop settlement = %d, want 316.80 (320 less 1%%)", s)
+	}
+	var reason string
+	_ = pool.QueryRow(e.ctx, `SELECT payload->>'reason' FROM platform.outbox WHERE aggregate_id = $1 AND topic = 'order.delivered'`, b.ID).Scan(&reason)
+	if reason != "review" {
+		t.Fatalf("delivered event reason = %q", reason)
+	}
+
+	// An order that's finished in the meantime can't be settled; the customer can still confirm one in review.
+	ago(fresh.ID, 73)
+	if _, _, err := e.svc.FlagStalled(e.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.svc.Received(e.ctx, hana, fresh.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := settle(fresh.ID, "refund"); err == nil || !strings.Contains(err.Error(), "handed over in the meantime") {
+		t.Fatalf("settling a finished order: %v", err)
+	}
+}

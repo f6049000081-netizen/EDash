@@ -27,6 +27,15 @@ class S {
 
   static const _strings = <String, Map<String, String>>{
     'en': {
+      'order_cancelled_not_completed': 'It wasn\'t handed over, so our team refunded it.',
+      'order_overdue':
+          'This is taking a while. If you already have your order, tap "I have my order" below so {shop} is paid.',
+      'order_in_review':
+          'It wasn\'t handed over, so our team is checking with {shop}. Your money is safe: you\'ll be refunded if you didn\'t get it.',
+      'order_overdue_shop':
+          'Accepted over a day ago. Hand it over with the customer\'s code, or cancel it so they\'re refunded.',
+      'order_in_review_shop':
+          'Passed to our team because it wasn\'t handed over in time. You can still hand it over with the code.',
       'web_title': 'Sign in on a computer',
       'web_tile_sub': 'Orders and products on a bigger screen',
       'web_steps':
@@ -395,6 +404,11 @@ class S {
       'retry': 'Retry',
     },
     'am': {
+      'order_cancelled_not_completed': 'ትዕዛዙ ስላልተረከበ ቡድናችን ገንዘቡን መልሷል።',
+      'order_overdue': 'ትንሽ ዘግይቷል። ትዕዛዝዎን አስቀድመው ከተቀበሉ {shop} እንዲከፈለው ከታች "ትዕዛዜን ተቀብያለሁ"ን ይንኩ።',
+      'order_in_review': 'ስላልተረከበ ቡድናችን ከ{shop} ጋር እያጣራ ነው። ገንዘብዎ ደህንነቱ የተጠበቀ ነው፤ ካልደረሰዎት ይመለስልዎታል።',
+      'order_overdue_shop': 'ከአንድ ቀን በፊት ተቀብለውታል። በደንበኛው ኮድ ያስረክቡ፣ ወይም ገንዘባቸው እንዲመለስ ይሰርዙት።',
+      'order_in_review_shop': 'በጊዜው ስላልተረከበ ወደ ቡድናችን ተላልፏል። አሁንም በኮዱ ማስረከብ ይችላሉ።',
       'web_title': 'በኮምፒውተር ይግቡ',
       'web_tile_sub': 'ትዕዛዞች እና ዕቃዎች በትልቅ ስክሪን',
       'web_steps': 'በኮምፒውተሩ የገበያ ዋን የንግድ ገጽን ይክፈቱ። ኮድ ያሳያል፤ ኮምፒውተሩን ወደ {shop} ለማስገባት እዚህ ያስገቡት።',
