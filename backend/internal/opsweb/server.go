@@ -32,6 +32,7 @@ import (
 	"superapp/backend/internal/merchants"
 	"superapp/backend/internal/money"
 	"superapp/backend/internal/ops"
+	"superapp/backend/internal/payments"
 	"superapp/backend/internal/payouts"
 )
 
@@ -105,6 +106,16 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("POST /ops/documents/{id}/review", s.authed(s.documentReview))
 	mux.Handle("GET /ops/payouts", s.authed(s.payoutList))
 	mux.Handle("POST /ops/payouts/{id}/release", s.authed(s.payoutRelease))
+	mux.Handle("GET /ops/cases", s.authed(s.caseList))
+	mux.Handle("GET /ops/cases/{id}", s.authed(s.casePage))
+	mux.Handle("POST /ops/cases/{id}/take", s.authed(s.caseTake))
+	mux.Handle("POST /ops/cases/{id}/note", s.authed(s.caseNote))
+	mux.Handle("POST /ops/cases/{id}/action", s.authed(s.caseAction))
+	mux.Handle("GET /ops/payments/{id}", s.authed(s.goToCase))
+	mux.Handle("GET /ops/users/{id}", s.authed(s.goToCase))
+	mux.Handle("GET /ops/staff", s.authed(s.staffPage))
+	mux.Handle("POST /ops/staff", s.authed(s.staffInvite))
+	mux.Handle("POST /ops/staff/{id}/action", s.authed(s.staffAction))
 	mux.Handle("GET /ops/approvals", s.authed(s.approvalList))
 	mux.Handle("POST /ops/approvals/{id}", s.authed(s.approvalDecide))
 	mux.Handle("GET /ops/audit", s.authed(s.auditPage))
@@ -324,6 +335,10 @@ var messages = map[string]string{
 	"notfound":     "Not found.",
 	"conflict":     "That can't be done in the current state. Reload the page.",
 	"unavailable":  "Something went wrong. Nothing was changed. Try again.",
+	"taken":        "The case is yours.",
+	"noted":        "Note added.",
+	"note_empty":   "Write something in the note first.",
+	"self":         "Nobody can change their own access. Ask another super admin.",
 	"doc_accepted": "Document accepted.",
 	"doc_rejected": "Document rejected. The owner was told why and can send a new one.",
 	"doc_decided":  "That document was already decided or replaced.",
@@ -346,6 +361,8 @@ func outcomeCode(out ops.Outcome, err error) string {
 		return "forbidden"
 	case errors.Is(err, ops.ErrOwnRequest):
 		return "own"
+	case errors.Is(err, ops.ErrSelf):
+		return "self"
 	case errors.Is(err, ops.ErrNoteMissing):
 		return "note"
 	case errors.Is(err, ops.ErrDuplicate):
@@ -631,6 +648,20 @@ var labels = map[string]string{
 	"approval.approve": "Approved a request", "approval.reject": "Rejected a request",
 	"document.view": "Opened a document", "document.accept": "Accepted a document", "document.reject": "Rejected a document",
 	"submitted": "To check", "accepted": "Accepted", "replaced": "Replaced",
+	"payment.release": "Release held payment", "payment.decline": "Decline held payment",
+	"user.freeze": "Freeze account", "user.unfreeze": "Unfreeze account",
+	"case.escalate": "Escalate to AML compliance", "case.resolve": "Resolve case", "case.take": "Took the case",
+	"case.note":   "Added a note",
+	"staff.roles": "Change roles", "staff.suspend": "Suspend staff member", "staff.reinstate": "Reinstate staff member",
+	"unassigned": "New", "in_review": "In review", "awaiting_approval": "Awaiting approval", "resolved": "Resolved",
+	"escalated_aml": "With AML compliance", "held_for_review": "Held", "succeeded": "Went through",
+	"frozen": "Frozen", "restricted": "Restricted", "pending_user": "Pending",
+	"p2p": "Send money", "qr_merchant": "QR payment", "topup": "Top-up",
+	"insufficient_funds": "not enough money", "declined_after_review": "declined after review",
+	"limit_exceeded": "over a limit",
+	"super_admin":    "Super admin", "finance_officer": "Finance officer", "risk_analyst": "Risk analyst",
+	"support_agent": "Support agent", "merchant_ops": "Merchant operations", "content_editor": "Content editor",
+	"left": "Left",
 }
 
 func (s *Server) parseTemplates() error {
@@ -664,16 +695,46 @@ func (s *Server) parseTemplates() error {
 		"short":       func(id uuid.UUID) string { return id.String()[:8] },
 		"pill": func(k string) string {
 			switch k {
-			case "active", "allowed", "approved", "settled", "accepted":
+			case "active", "allowed", "approved", "settled", "accepted", "succeeded", "resolved":
 				return "ok"
-			case "denied", "suspended", "rejected", "closed":
+			case "denied", "suspended", "rejected", "closed", "frozen", "escalated_aml":
 				return "bad"
-			case "on_hold", "pending", "kyb_review", "applied", "lapsed", "submitted", "failed":
+			case "on_hold", "pending", "kyb_review", "applied", "lapsed", "submitted", "failed", "held_for_review", "unassigned", "awaiting_approval":
 				return "warn"
 			}
 			return "info"
 		},
 		"list": func(v ...string) []string { return v },
+		"has":  func(list []string, v string) bool { return slices.Contains(list, v) },
+		"roleNames": func(csv string) string {
+			var out []string
+			for _, r := range strings.Split(csv, ",") {
+				out = append(out, or(labels[r], r))
+			}
+			return strings.Join(out, ", ")
+		},
+		"rules": func(rs []string) string {
+			out := make([]string, 0, len(rs))
+			for _, r := range rs {
+				out = append(out, or(payments.RuleText[r], r))
+			}
+			return strings.Join(out, "; ")
+		},
+		"targetLink": func(t, id string) string {
+			switch t {
+			case "merchant":
+				return "/ops/merchants/" + id
+			case "payout":
+				return "/ops/payouts"
+			case "case":
+				return "/ops/cases/" + id
+			case "payment":
+				return "/ops/payments/" + id
+			case "user":
+				return "/ops/users/" + id
+			}
+			return "/ops/staff"
+		},
 	}
 	s.tpl = map[string]*template.Template{}
 	pages, err := fs.Glob(webFS, "web/pages/*.html")

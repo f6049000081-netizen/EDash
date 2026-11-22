@@ -7,6 +7,10 @@ import "strings"
 // translators supply them (the same gap as the SMS text, listed in backend/README.md).
 var texts = map[string]map[string]string{
 	"en": {
+		"account_frozen.title":                     "Your account is on hold",
+		"account_frozen.body":                      "You can't send or pay for now while we check some activity. Your money is safe. Contact support if you have questions.",
+		"account_unfrozen.title":                   "Your account is active again",
+		"account_unfrozen.body":                    "You can send and pay as usual. Thank you for your patience.",
 		"document_rejected_tin_certificate.title":  "{shop}: send the TIN certificate again",
 		"document_rejected_tin_certificate.body":   "We couldn't accept it. {reason} Add a new photo in Profile → Business.",
 		"document_rejected_trade_licence.title":    "{shop}: send the trade licence again",
@@ -63,6 +67,10 @@ var texts = map[string]map[string]string{
 		"payout_destination_changed.body":          "Payouts for {shop} will go to {destination} from {when}. If you didn't make this change, contact support now.",
 	},
 	"am": {
+		"account_frozen.title":                     "መለያዎ ለጊዜው ታግዷል",
+		"account_frozen.body":                      "አንዳንድ እንቅስቃሴዎችን እያጣራን ስለሆነ ለአሁን መላክም ሆነ መክፈል አይችሉም። ገንዘብዎ ደህንነቱ የተጠበቀ ነው። ጥያቄ ካለዎት የደንበኞች አገልግሎትን ያግኙ።",
+		"account_unfrozen.title":                   "መለያዎ እንደገና ንቁ ሆኗል",
+		"account_unfrozen.body":                    "እንደተለመደው መላክ እና መክፈል ይችላሉ። ስለ ትዕግስትዎ እናመሰግናለን።",
 		"document_rejected_tin_certificate.title":  "{shop}፦ የግብር ከፋይ መለያ (TIN) ሰርተፊኬቱን እንደገና ይላኩ",
 		"document_rejected_tin_certificate.body":   "መቀበል አልቻልንም። {reason} በመገለጫ → ንግድ ውስጥ አዲስ ፎቶ ያክሉ።",
 		"document_rejected_trade_licence.title":    "{shop}፦ የንግድ ፈቃዱን እንደገና ይላኩ",

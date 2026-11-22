@@ -34,6 +34,7 @@ import (
 	"superapp/backend/internal/merchants"
 	"superapp/backend/internal/ops"
 	"superapp/backend/internal/opsweb"
+	"superapp/backend/internal/payments"
 	"superapp/backend/internal/payouts"
 	"superapp/backend/internal/platform"
 )
@@ -100,6 +101,8 @@ func run(log *slog.Logger) error {
 		Pool:      pool,
 		Merchants: &merchants.Service{Pool: pool},
 		Payouts:   payouts.NewService(pool, ledger.New(), &platform.PINVerifier{Pool: pool}),
+		// Staff only release or decline held payments; the rules and PIN check are the customer side's.
+		Payments: payments.NewService(pool, ledger.New(), payments.DefaultRules(), &platform.PINVerifier{Pool: pool}),
 	}
 	if svc.KYB, err = kyb.FromEnv(ctx, pool, os.Getenv); err != nil {
 		return err

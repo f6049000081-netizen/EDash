@@ -31,6 +31,7 @@ import (
 	"superapp/backend/internal/merchants"
 	"superapp/backend/internal/ops"
 	"superapp/backend/internal/opsweb"
+	"superapp/backend/internal/payments"
 	"superapp/backend/internal/payouts"
 	"superapp/backend/internal/platform"
 )
@@ -190,7 +191,8 @@ func setup(t *testing.T, amr ...string) *env {
 	}
 	e := &env{t: t, idp: newIdP(t), logs: &bytes.Buffer{}}
 	e.svc = &ops.Service{Pool: pool, Merchants: &merchants.Service{Pool: pool},
-		Payouts: payouts.NewService(pool, ledger.New(), &platform.PINVerifier{Pool: pool})}
+		Payouts:  payouts.NewService(pool, ledger.New(), &platform.PINVerifier{Pool: pool}),
+		Payments: payments.NewService(pool, ledger.New(), payments.DefaultRules(), &platform.PINVerifier{Pool: pool})}
 	e.console = httptest.NewUnstartedServer(nil)
 	key := make([]byte, 32)
 	_, _ = rand.Read(key)

@@ -74,6 +74,12 @@ dd { margin: 0; }
 
 form.stack { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
 form.inline { display: flex; flex-wrap: wrap; gap: 6px; }
+dl.params { margin: 8px 0; }
+fieldset.checks { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; display: flex; flex-wrap: wrap; gap: 6px 16px; }
+fieldset.checks legend { font-weight: 600; font-size: 14px; padding: 0 4px; }
+fieldset.checks label { font-weight: 400; display: inline-flex; gap: 6px; align-items: center; }
+fieldset.checks input { min-width: 0; }
+details summary { cursor: pointer; color: var(--brand); font-weight: 600; padding: 4px 0; }
 .row { display: flex; flex-wrap: wrap; gap: 8px; }
 label { font-weight: 600; font-size: 14px; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }

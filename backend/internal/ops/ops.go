@@ -28,6 +28,7 @@ import (
 
 	"superapp/backend/internal/kyb"
 	"superapp/backend/internal/merchants"
+	"superapp/backend/internal/payments"
 	"superapp/backend/internal/payouts"
 )
 
@@ -90,6 +91,7 @@ type Service struct {
 	Pool      *pgxpool.Pool
 	Merchants *merchants.Service
 	Payouts   *payouts.Service
+	Payments  *payments.Service
 	KYB       *kyb.Service // nil: no documents (approval then doesn't check them)
 	Now       func() time.Time
 	// ApprovalTTL is how long a request waits for a second person before it lapses.
@@ -167,11 +169,24 @@ var actionPermission = map[string]string{
 	"merchant.suspend":   "accounts.freeze",
 	"merchant.reinstate": "accounts.freeze",
 	"payout.release":     "payouts.release",
+	"payment.release":    "payments.release",
+	"payment.decline":    "risk.cases",
+	"user.freeze":        "accounts.freeze",
+	"user.unfreeze":      "accounts.freeze",
+	"case.escalate":      "risk.cases",
+	"case.resolve":       "risk.cases",
+	"staff.invite":       "staff.manage",
+	"staff.roles":        "staff.manage",
+	"staff.suspend":      "staff.manage",
+	"staff.reinstate":    "staff.manage",
 }
 
 var actionTarget = map[string]string{
 	"merchant.approve": "merchant", "merchant.reject": "merchant", "merchant.suspend": "merchant",
 	"merchant.reinstate": "merchant", "payout.release": "payout",
+	"payment.release": "payment", "payment.decline": "payment", "user.freeze": "user", "user.unfreeze": "user",
+	"case.escalate": "case", "case.resolve": "case",
+	"staff.invite": "staff", "staff.roles": "staff", "staff.suspend": "staff", "staff.reinstate": "staff",
 }
 
 // Permission is the permission an action kind needs.
@@ -181,6 +196,9 @@ type Action struct {
 	Kind   string
 	Target uuid.UUID
 	Note   string // why: shown to the checker, kept in the audit log; for rejections and suspensions, also told to the merchant
+	// Params are the details of the change (for staff changes: email, name, roles). They are stored in the
+	// request, so the checker approves exactly what gets applied.
+	Params map[string]string
 }
 
 type Outcome struct {
@@ -200,6 +218,13 @@ func (s *Service) Do(ctx context.Context, a Actor, act Action) (Outcome, error) 
 		return Outcome{}, ErrNoteMissing
 	}
 	detail := map[string]any{"note": act.Note, "permission": perm}
+	if len(act.Params) > 0 {
+		detail["params"] = act.Params
+	}
+	if strings.HasPrefix(act.Kind, "staff.") && act.Target == a.Staff.ID {
+		s.denied(ctx, a, act.Kind, actionTarget[act.Kind], act.Target, detail)
+		return Outcome{}, ErrSelf
+	}
 	switch a.Staff.Grant(perm) {
 	case Full:
 		err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
@@ -235,7 +260,7 @@ func (s *Service) Do(ctx context.Context, a Actor, act Action) (Outcome, error) 
 			if trial != nil {
 				return trial
 			}
-			payload, _ := json.Marshal(map[string]any{"kind": act.Kind})
+			payload, _ := json.Marshal(map[string]any{"kind": act.Kind, "params": act.Params})
 			now := s.now()
 			if err := tx.QueryRow(ctx, `
 				INSERT INTO admin.approvals (permission, target_type, target_id, payload, requested_by, requested_at, expires_at, request_note)
@@ -294,7 +319,8 @@ func (s *Service) Decide(ctx context.Context, a Actor, approval uuid.UUID, appro
 				return ErrNoteMissing
 			}
 			var p struct {
-				Kind string `json:"kind"`
+				Kind   string            `json:"kind"`
+				Params map[string]string `json:"params"`
 			}
 			if err := json.Unmarshal(payload, &p); err != nil {
 				return err
@@ -304,8 +330,8 @@ func (s *Service) Decide(ctx context.Context, a Actor, approval uuid.UUID, appro
 				return err
 			}
 			// The merchant is told the maker's reason, which the checker has just read and agreed with.
-			if err := s.apply(ctx, tx, a.Staff.ID, Action{Kind: p.Kind, Target: target, Note: requestNote}); err != nil {
-				return err
+			if err := s.apply(ctx, tx, a.Staff.ID, Action{Kind: p.Kind, Target: target, Note: requestNote, Params: p.Params}); err != nil {
+				return &failedError{err, p.Kind, targetType, target, detail}
 			}
 			detail["kind"] = p.Kind
 		}
@@ -321,8 +347,26 @@ func (s *Service) Decide(ctx context.Context, a Actor, approval uuid.UUID, appro
 		s.denied(ctx, a, d.action, d.targetType, d.target, d.detail)
 		return d.err
 	}
+	var f *failedError
+	if errors.As(err, &f) {
+		// The approval stays open: the checker can try again once the state allows it, or reject it.
+		s.failed(ctx, a, f.kind, f.target, f.detail, f.err)
+		return f.err
+	}
 	return err
 }
+
+// failedError is an approved change that couldn't be applied; recorded like a refused direct action.
+type failedError struct {
+	err        error
+	kind       string
+	targetType string
+	target     uuid.UUID
+	detail     map[string]any
+}
+
+func (f *failedError) Error() string { return f.err.Error() }
+func (f *failedError) Unwrap() error { return f.err }
 
 type deniedError struct {
 	err        error
@@ -394,6 +438,10 @@ func (s *Service) apply(ctx context.Context, tx pgx.Tx, staff uuid.UUID, act Act
 		return s.Payouts.ResumeAfterReinstateTx(ctx, tx, act.Target)
 	case "payout.release":
 		return s.Payouts.ReleaseTx(ctx, tx, act.Target)
+	case "payment.release", "payment.decline", "user.freeze", "user.unfreeze", "case.escalate", "case.resolve":
+		return s.applyRisk(ctx, tx, staff, act)
+	case "staff.invite", "staff.roles", "staff.suspend", "staff.reinstate":
+		return s.applyStaff(ctx, tx, staff, act)
 	}
 	return fmt.Errorf("ops: unknown action %q", act.Kind)
 }

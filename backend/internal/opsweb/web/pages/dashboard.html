@@ -5,6 +5,7 @@
 <section class="stats" aria-label="Queues">
   <a class="card stat" href="/ops/merchants?status=review"><span class="muted">Applications to review</span><span class="num">{{.Counts.Applications}}</span></a>
   <a class="card stat" href="/ops/approvals"><span class="muted">Requests waiting for you</span><span class="num">{{.Counts.Approvals}}</span></a>
+  <a class="card stat" href="/ops/cases"><span class="muted">Open risk cases{{if .Counts.CasesOverdue}}, {{.Counts.CasesOverdue}} past due{{end}}</span><span class="num">{{.Counts.Cases}}</span></a>
   <a class="card stat" href="/ops/payouts"><span class="muted">Payouts on hold</span><span class="num">{{.Counts.HeldPayouts}}</span></a>
   <a class="card stat" href="/ops/merchants?status=suspended"><span class="muted">Suspended merchants</span><span class="num">{{.Counts.Suspended}}</span></a>
 </section>

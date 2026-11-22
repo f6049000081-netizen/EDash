@@ -6,7 +6,8 @@
 # passwords (written to backend/.dex/passwords.txt), and invites both as staff in g1dev:
 #   tsion.admin@gebeya.dev   super admin
 #   dawit.risk@gebeya.dev    risk analyst and finance officer
-# Two people, so requests that need a second person can be approved. The dev identity provider has no
+#   selam.admin@gebeya.dev   super admin (a second one, so staff changes can be approved)
+# Several people, so requests that need a second person can be approved. The dev identity provider has no
 # hardware MFA, so OPS_REQUIRED_AMR is empty here (APP_ENV=dev); production refuses to start without it.
 set -e
 cd "$(dirname "$0")"
@@ -17,12 +18,13 @@ GO="docker run --rm -v $SRC:/src -v g1gomod:/go/pkg/mod -v g1gocache:/root/.cach
 ISSUER=http://localhost:5556/dex
 rand() { python -c "import secrets; print(secrets.token_urlsafe($1))"; }
 
-if [ ! -f .dex/config.yaml ]; then
+if [ ! -f .dex/config.yaml ] || ! grep -q selam.admin .dex/config.yaml; then
   mkdir -p .dex
   CLIENT_SECRET=$(rand 32)
-  P1=$(rand 12); P2=$(rand 12)
+  P1=$(rand 12); P2=$(rand 12); P3=$(rand 12)
   H1=$(printf %s "$P1" | MSYS_NO_PATHCONV=1 $GO -i golang:1.23.4 go run ./cmd/devtool hash-password)
   H2=$(printf %s "$P2" | MSYS_NO_PATHCONV=1 $GO -i golang:1.23.4 go run ./cmd/devtool hash-password)
+  H3=$(printf %s "$P3" | MSYS_NO_PATHCONV=1 $GO -i golang:1.23.4 go run ./cmd/devtool hash-password)
   cat > .dex/config.yaml <<EOF
 issuer: $ISSUER
 storage: {type: memory}
@@ -37,8 +39,10 @@ enablePasswordDB: true
 staticPasswords:
   - {email: tsion.admin@gebeya.dev, username: Tsion, userID: 7d1f1b52-6a43-4f3e-9d0e-6a1f2d5b0c01, hash: '$H1'}
   - {email: dawit.risk@gebeya.dev, username: Dawit, userID: 7d1f1b52-6a43-4f3e-9d0e-6a1f2d5b0c02, hash: '$H2'}
+  - {email: selam.admin@gebeya.dev, username: Selam, userID: 7d1f1b52-6a43-4f3e-9d0e-6a1f2d5b0c03, hash: '$H3'}
 EOF
   printf 'tsion.admin@gebeya.dev  %s\ndawit.risk@gebeya.dev   %s\n' "$P1" "$P2" > .dex/passwords.txt
+  printf 'selam.admin@gebeya.dev  %s\n' "$P3" >> .dex/passwords.txt
   cat > .dex/ops.env <<EOF
 APP_ENV=dev
 DATABASE_URL=postgres://postgres:test@g1db:5432/g1dev
@@ -48,7 +52,8 @@ OIDC_CLIENT_ID=g1ops
 OIDC_CLIENT_SECRET=$CLIENT_SECRET
 OPS_SESSION_KEY=$(python -c "import secrets, base64; print(base64.b64encode(secrets.token_bytes(32)).decode())")
 EOF
-  for s in "tsion.admin@gebeya.dev|Tsion Haile|super_admin" "dawit.risk@gebeya.dev|Dawit Bekele|risk_analyst,finance_officer"; do
+  for s in "tsion.admin@gebeya.dev|Tsion Haile|super_admin" "dawit.risk@gebeya.dev|Dawit Bekele|risk_analyst,finance_officer" \
+           "selam.admin@gebeya.dev|Selam Girma|super_admin"; do
     IFS='|' read -r EMAIL NAME ROLES <<EOF2
 $s
 EOF2

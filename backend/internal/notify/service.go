@@ -25,7 +25,7 @@ import (
 var Topics = []string{
 	"payment.succeeded", "payment.failed", "payment.held",
 	"identity.signed_in", "identity.pin_reset", "identity.pin_changed", "identity.refresh_token_reused",
-	"identity.biometric_enrolled",
+	"identity.biometric_enrolled", "identity.account_frozen", "identity.account_unfrozen",
 	"payout.settled", "payout.on_hold", "merchant.payout_destination_changed", "merchant.applied", "merchant.approved",
 	"merchant.rejected", "merchant.suspended", "merchant.reinstated", "merchant.document_rejected",
 }
@@ -183,6 +183,10 @@ func (s *Service) security(ctx context.Context, m outbox.Message, ev identityEve
 		kind = "pin_changed"
 	case "identity.refresh_token_reused":
 		kind = "session_revoked"
+	case "identity.account_frozen":
+		kind = "account_frozen"
+	case "identity.account_unfrozen":
+		kind = "account_unfrozen"
 	case "identity.biometric_enrolled":
 		kind = "biometric_enrolled"
 	default:

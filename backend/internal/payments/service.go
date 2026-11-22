@@ -446,6 +446,11 @@ func (s *Service) merchantBps(ctx context.Context, tx pgx.Tx, merchantID uuid.UU
 }
 
 func (s *Service) finish(ctx context.Context, tx pgx.Tx, in *Intent, to Status, failure string, d Decision, actor, topic string) error {
+	if to == StatusHeldForReview {
+		if err := openCaseTx(ctx, tx, in.PayerID, in.ID, in.Amount, d.Rules, d.Score); err != nil {
+			return err
+		}
+	}
 	_, err := tx.Exec(ctx, `
 		UPDATE payments.intents
 		SET status = $2::payments.intent_status, failure_code = NULLIF($3, ''), risk_score = $4, confirmed_at = now(),

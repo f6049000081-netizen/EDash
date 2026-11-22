@@ -15,9 +15,11 @@
     <nav aria-label="Sections">
       <a href="/ops/" {{if eq .Nav "dashboard"}}aria-current="page"{{end}}>Overview</a>
       <a href="/ops/merchants?status=review" {{if or (eq .Nav "merchants") (eq .Nav "merchant")}}aria-current="page"{{end}}><span>Merchants</span>{{if .Counts.Applications}}<span class="count">{{.Counts.Applications}} to review</span>{{end}}</a>
+      {{if can .Session.Staff "case.resolve" "view"}}<a href="/ops/cases" {{if or (eq .Nav "cases") (eq .Nav "case")}}aria-current="page"{{end}}><span>Risk cases</span>{{if .Counts.Cases}}<span class="count">{{.Counts.Cases}}{{if .Counts.CasesOverdue}} · {{.Counts.CasesOverdue}} late{{end}}</span>{{end}}</a>{{end}}
       <a href="/ops/payouts" {{if eq .Nav "payouts"}}aria-current="page"{{end}}><span>Payouts on hold</span>{{if .Counts.HeldPayouts}}<span class="count">{{.Counts.HeldPayouts}}</span>{{end}}</a>
       <a href="/ops/approvals" {{if eq .Nav "approvals"}}aria-current="page"{{end}}><span>Approvals</span>{{if .Counts.Approvals}}<span class="count">{{.Counts.Approvals}}</span>{{end}}</a>
       <a href="/ops/audit" {{if eq .Nav "audit"}}aria-current="page"{{end}}>Audit log</a>
+      {{if can .Session.Staff "staff.roles" "view"}}<a href="/ops/staff" {{if eq .Nav "staff"}}aria-current="page"{{end}}>Staff</a>{{end}}
     </nav>
     <div class="me">
       <div class="me-name">{{.Session.Staff.Name}}</div>

@@ -151,6 +151,8 @@ A separate server (`cmd/ops`, port 8090) with server-rendered pages for staff (`
   - Every form carries a per-session CSRF token and is refused from another origin. Pages have no scripts, under a strict Content Security Policy.
 - **Roles and grants** come from `admin.role_permissions`: `full` acts alone, `approve` needs a second person, `view` only reads.
   - Approving or rejecting applications: `merchants.approve`. Suspending or reinstating: `accounts.freeze`. Releasing a held payout: `payouts.release`.
+  - Risk cases: `risk.cases` (take, note, decline, resolve, escalate), `payments.release` (release a held payment) and `accounts.freeze` (freeze a customer).
+  - Staff: `staff.manage`, which only super admins have, as `approve`: every staff change needs a second super admin.
 - **Maker-checker.** With an `approve` grant, an action becomes a request in `admin.approvals` with a written reason (10+ characters). It is tried in a savepoint first, so a request that can't succeed is refused at once.
   - Someone else with the grant decides it, with their own note. Nobody decides their own request; the database refuses it too.
   - Requests lapse after 72 hours. The same request can't be pending twice.
@@ -161,7 +163,15 @@ A separate server (`cmd/ops`, port 8090) with server-rendered pages for staff (`
   - Release: only payouts held for a partner rejection or repeated failures, and only to a current payout account. The attempt count starts again.
   - The owner is notified of a rejection, suspension or reinstatement, with the reason staff wrote.
 - **Audit log.** Every attempt is recorded, with role, IP and device: sign-ins, document openings, refusals (`denied`), and allowed actions the rules stopped, such as approving with documents missing (`failed`, with the reason). Rows are hash-chained and can't be updated or deleted; the audit page checks the whole chain.
-- **Not built yet:** risk cases, staff management in the console (use `devtool invite-staff` for now), and reversing failed payouts.
+- **Risk cases.** A payment held by the risk rules (or a top-up held for a mismatch) opens a case, numbered `FR-20001` onwards. Further holds for the same customer join their open case: the score is the highest, the amount the sum.
+  - Due in 4 hours when the score is 80+ or the amount ETB 50,000+, otherwise 24. Late cases are marked in the list and counted on the overview.
+  - An analyst takes the case, writes notes, and decides each held payment. **Release** sends it now, with a second person's approval, as if it had just been confirmed: if the money is no longer there it fails with `insufficient_funds`. **Decline** ends it (`declined_after_review`); the payer keeps their money and is only told it didn't go through.
+  - Held top-ups can't be decided here yet: the customer already paid the partner, so ending one needs the partner's refund flow.
+  - **Freeze** (second person) stops the customer sending or paying; they're told their account is on hold, not why. Unfreeze the same way.
+  - **Resolve** with an outcome, once no payment is still held. **Escalate** hands the case to AML compliance, who decide whether to report to the Financial Intelligence Service; the customer must not be told.
+  - The case page shows the customer (masked phone, balance, 30-day activity), the payments with the rules that fired, pending requests, and the history of the case, its payments and its customer.
+- **Staff management.** Invite (name, company email, roles), change roles, suspend (signed out at once) and reinstate, each needing a second super admin. The request carries the details, so the approver sees exactly what will change. Nobody can request or approve a change to their own access, and the last active super admin can't be removed.
+- **Not built yet:** reversing failed payouts, refunds for held top-ups, and a case view for merchants.
 
 ### Run it locally
 
@@ -169,10 +179,13 @@ A separate server (`cmd/ops`, port 8090) with server-rendered pages for staff (`
 ./run-ops-dev.sh   # http://localhost:8090/ops/, against the g1dev database
 ```
 
-The first run makes `backend/.dex/` (git-ignored): a Dex config standing in for the company identity provider, with two staff accounts and random passwords in `.dex/passwords.txt`.
+The first run makes `backend/.dex/` (git-ignored): a Dex config standing in for the company identity provider, with three staff accounts and random passwords in `.dex/passwords.txt`.
 
-- `tsion.admin@gebeya.dev`: super admin, acts alone.
-- `dawit.risk@gebeya.dev`: risk analyst and finance officer. His suspensions and payout releases need Tsion's approval.
+- `tsion.admin@gebeya.dev`: super admin, acts alone on most things.
+- `selam.admin@gebeya.dev`: a second super admin, to approve Tsion's staff changes (and the other way round).
+- `dawit.risk@gebeya.dev`: risk analyst and finance officer. His suspensions, payout and payment releases and account freezes need a super admin's approval.
+
+To get a risk case, pay more than ETB 50,000 from a test account (`./dev-topup.sh` first); the payment is held and the case appears under Risk cases.
 
 Dex has no MFA, so the dev console doesn't ask for a hardware key.
 
@@ -358,6 +371,6 @@ curl -X POST localhost:8080/v1/auth/otp/verify -H 'Content-Type: application/jso
 - **Device keys in the app:** the server side of DPoP and biometric confirmation is done; the app still has to create the hardware keys and send proofs. Then switch on `DPOP_REQUIRED`.
 - **Key attestation:** check Android key attestation and App Attest so the server knows the DPoP and biometric keys really live in secure hardware.
 - **Payout partner:** connect a licensed payout rail (telebirr B2C, EthSwitch) once credentials exist, and add reversing failed payouts to the operations console.
-- **Operations console:** risk cases, staff management with maker-checker, and connecting the company identity provider with hardware-key MFA.
+- **Operations console:** connect the company identity provider with hardware-key MFA; refunds for held top-ups through the partner; an AML compliance view for escalated cases; risk cases for merchants.
 - **Document storage for production:** choose the provider (see KYB documents), then set `S3_*` and `DOCS_KEYS` from the secrets manager. Add malware scanning of uploads before staff open them.
 - **Orders and bills** in the activity feed, once those modules exist.

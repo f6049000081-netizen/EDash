@@ -289,6 +289,11 @@ func (s *Service) closeTopUp(ctx context.Context, id uuid.UUID, to Status, failu
 				return err
 			}
 		}
+		if to == StatusHeldForReview {
+			if err := openCaseTx(ctx, tx, payer, id, want, []string{"TOPUP_" + strings.ToUpper(failure)}, 0.5); err != nil {
+				return err
+			}
+		}
 		if err := addEvent(ctx, tx, id, StatusProcessing, to, reason, actor); err != nil {
 			return err
 		}

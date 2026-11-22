@@ -1,0 +1,61 @@
+{{define "title"}}Staff{{end}}
+{{define "content"}}
+{{$st := .Session.Staff}}{{$csrf := .Session.CSRF}}{{$roles := .Data.Roles}}
+<h1>Staff</h1>
+<p class="muted">Every change here needs a second super admin, and nobody changes their own access. People sign in with their company account; the console keeps no passwords.</p>
+{{if .Data.Pending}}
+<div class="card">
+  {{range .Data.Pending}}<p class="note">Waiting for approval: <strong>{{label .Kind}}</strong> for {{or .TargetName (short .TargetID)}}{{if .Params.roles}} ({{roleNames .Params.roles}}){{end}}, asked by {{.Requester}}. <a href="/ops/approvals">Open approvals</a></p>{{end}}
+</div>
+{{end}}
+
+<div class="card">
+{{range .Data.List}}
+<article class="req">
+  <div class="req-head">
+    <strong>{{.Name}}</strong> <span class="muted">{{.Email}}</span>
+    <span class="pill {{pill .Status}}">{{label .Status}}</span>
+    {{if .Invited}}<span class="pill info">Hasn't signed in yet</span>{{else if .LastSignIn}}<span class="muted">last signed in {{when .LastSignIn}}</span>{{end}}
+  </div>
+  <p>{{range $i, $r := .Roles}}{{if $i}}, {{end}}{{label $r}}{{else}}<span class="muted">No roles</span>{{end}}</p>
+  {{if and (can $st "staff.roles" "approve") (ne .ID $st.ID)}}
+  <details>
+    <summary>Change</summary>
+    <form method="post" action="/ops/staff/{{.ID}}/action" class="stack">
+      <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="kind" value="staff.roles">
+      <fieldset class="checks"><legend>Roles</legend>
+        {{$have := .Roles}}{{range $roles}}<label><input type="checkbox" name="roles" value="{{.}}" {{if has $have .}}checked{{end}}> {{label .}}</label>{{end}}
+      </fieldset>
+      <label for="roles-note-{{.ID}}">Why</label>
+      <textarea id="roles-note-{{.ID}}" name="note" required minlength="10" maxlength="2000" rows="2"></textarea>
+      <button class="primary">Ask to change roles</button>
+    </form>
+    <form method="post" action="/ops/staff/{{.ID}}/action" class="stack">
+      <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="kind" value="{{if eq .Status "active"}}staff.suspend{{else}}staff.reinstate{{end}}">
+      <label for="status-note-{{.ID}}">Why {{if eq .Status "active"}}suspend (they're signed out at once){{else}}reinstate{{end}}</label>
+      <textarea id="status-note-{{.ID}}" name="note" required minlength="10" maxlength="2000" rows="2"></textarea>
+      <button class="{{if eq .Status "active"}}danger{{else}}primary{{end}}">Ask to {{if eq .Status "active"}}suspend{{else}}reinstate{{end}}</button>
+    </form>
+  </details>
+  {{end}}
+</article>
+{{end}}
+</div>
+
+{{if can $st "staff.invite" "approve"}}
+<section class="card">
+  <h2>Invite someone</h2>
+  <form method="post" action="/ops/staff" class="stack">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <label for="inv-name">Full name</label><input id="inv-name" name="name" required maxlength="120">
+    <label for="inv-email">Company email (they sign in with this account)</label><input id="inv-email" name="email" type="email" required maxlength="200">
+    <fieldset class="checks"><legend>Roles</legend>
+      {{range $roles}}<label><input type="checkbox" name="roles" value="{{.}}"> {{label .}}</label>{{end}}
+    </fieldset>
+    <label for="inv-note">Why they need access</label>
+    <textarea id="inv-note" name="note" required minlength="10" maxlength="2000" rows="2"></textarea>
+    <button class="primary">Ask to invite</button>
+  </form>
+</section>
+{{end}}
+{{end}}

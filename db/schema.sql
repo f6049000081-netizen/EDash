@@ -705,9 +705,13 @@ CREATE TABLE risk.decisions (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE SEQUENCE risk.case_number_seq START 20001;
+
+-- A case opens when a payment is held for review. Further held payments from the same person join their
+-- open case. Staff work it in the operations console.
 CREATE TABLE risk.cases (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    number          TEXT NOT NULL UNIQUE,       -- FR-20931
+    number          TEXT NOT NULL UNIQUE DEFAULT 'FR-' || nextval('risk.case_number_seq'),
     subject_type    TEXT NOT NULL CHECK (subject_type IN ('user', 'merchant', 'device')),
     subject_id      UUID NOT NULL,
     summary         TEXT NOT NULL,
@@ -717,10 +721,21 @@ CREATE TABLE risk.cases (
     status          TEXT NOT NULL CHECK (status IN ('unassigned', 'in_review', 'awaiting_approval', 'resolved', 'escalated_aml')),
     assignee_id     UUID,
     sla_due_at      TIMESTAMPTZ NOT NULL,
+    resolution      TEXT,                       -- how it ended (internal; never shown to the customer)
     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX ON risk.cases (status, risk_score DESC);
+CREATE UNIQUE INDEX cases_one_open ON risk.cases (subject_type, subject_id) WHERE status NOT IN ('resolved', 'escalated_aml');
+
+CREATE TABLE risk.case_notes (
+    id              BIGSERIAL PRIMARY KEY,
+    case_id         UUID NOT NULL REFERENCES risk.cases(id),
+    staff_id        UUID NOT NULL,              -- admin.staff (defined later)
+    body            TEXT NOT NULL CHECK (length(body) BETWEEN 1 AND 4000),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX ON risk.case_notes (case_id, id);
 
 CREATE TABLE risk.case_intents (
     case_id         UUID NOT NULL REFERENCES risk.cases(id),
@@ -934,7 +949,12 @@ INSERT INTO admin.role_permissions (role_id, permission, grant_level) VALUES
     -- Not in the design's matrix; added with the payout and audit screens.
     ('super_admin', 'payouts.release', 'approve'), ('finance_officer', 'payouts.release', 'approve'),
     ('risk_analyst', 'payouts.release', 'view'), ('merchant_ops', 'payouts.release', 'view'),
-    ('super_admin', 'audit.view', 'full'), ('finance_officer', 'audit.view', 'full'), ('risk_analyst', 'audit.view', 'full');
+    ('super_admin', 'audit.view', 'full'), ('finance_officer', 'audit.view', 'full'), ('risk_analyst', 'audit.view', 'full'),
+    -- Risk cases: working a case and declining a held payment (no money moves) vs. releasing one (money moves).
+    ('super_admin', 'risk.cases', 'full'), ('risk_analyst', 'risk.cases', 'full'),
+    ('finance_officer', 'risk.cases', 'view'), ('support_agent', 'risk.cases', 'view'),
+    ('super_admin', 'payments.release', 'approve'), ('risk_analyst', 'payments.release', 'approve'),
+    ('finance_officer', 'payments.release', 'approve');
 
 -- Grants the first staff roles (granted_by must be someone else). It can't sign in.
 INSERT INTO admin.staff (id, email, full_name, sso_subject, status)

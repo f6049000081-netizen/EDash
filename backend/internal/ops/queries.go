@@ -21,6 +21,7 @@ func MaskPhone(p string) string {
 
 type Counts struct {
 	Applications, Approvals, HeldPayouts, Suspended int
+	Cases, CasesOverdue                             int
 }
 
 func (s *Service) Counts(ctx context.Context, viewer uuid.UUID) (Counts, error) {
@@ -29,8 +30,10 @@ func (s *Service) Counts(ctx context.Context, viewer uuid.UUID) (Counts, error) 
 		SELECT (SELECT count(*) FROM merchant.merchants WHERE status IN ('applied', 'kyb_review')),
 		       (SELECT count(*) FROM admin.approvals WHERE decision IS NULL AND expires_at > $1 AND requested_by <> $2),
 		       (SELECT count(*) FROM merchant.payouts WHERE status = 'on_hold'),
-		       (SELECT count(*) FROM merchant.merchants WHERE status = 'suspended')`, s.now(), viewer).
-		Scan(&c.Applications, &c.Approvals, &c.HeldPayouts, &c.Suspended)
+		       (SELECT count(*) FROM merchant.merchants WHERE status = 'suspended'),
+		       (SELECT count(*) FROM risk.cases WHERE status NOT IN ('resolved', 'escalated_aml')),
+		       (SELECT count(*) FROM risk.cases WHERE status NOT IN ('resolved', 'escalated_aml') AND sla_due_at < $1)`, s.now(), viewer).
+		Scan(&c.Applications, &c.Approvals, &c.HeldPayouts, &c.Suspended, &c.Cases, &c.CasesOverdue)
 	return c, err
 }
 
@@ -150,20 +153,28 @@ type ApprovalRow struct {
 	Decision     string
 	Decider      string
 	DecisionNote string
+	Params       map[string]string // the requested change's details (staff changes)
 }
 
 // Approvals lists requests: open ones (pending) or recently decided ones, newest first.
 func (s *Service) Approvals(ctx context.Context, pending bool, target uuid.UUID, limit int) ([]ApprovalRow, error) {
 	rows, err := s.Pool.Query(ctx, `
 		SELECT a.id, a.payload->>'kind', a.permission, a.target_type, a.target_id,
-		       COALESCE(m.trade_name, pm.trade_name, ''), a.requested_by, rs.full_name, a.request_note, a.requested_at, a.expires_at,
-		       COALESCE(a.decision, ''), COALESCE(ds.full_name, ''), COALESCE(a.decision_note, '')
+		       COALESCE(m.trade_name, pm.trade_name, NULLIF(tu.display_name, ''), ts.full_name, rc.number, ic.number,
+		                a.payload->'params'->>'name', ''),
+		       a.requested_by, rs.full_name, a.request_note, a.requested_at, a.expires_at,
+		       COALESCE(a.decision, ''), COALESCE(ds.full_name, ''), COALESCE(a.decision_note, ''), a.payload->'params'
 		FROM admin.approvals a
 		JOIN admin.staff rs ON rs.id = a.requested_by
 		LEFT JOIN admin.staff ds ON ds.id = a.decided_by
 		LEFT JOIN merchant.merchants m ON a.target_type = 'merchant' AND m.id = a.target_id
 		LEFT JOIN merchant.payouts p ON a.target_type = 'payout' AND p.id = a.target_id
 		LEFT JOIN merchant.merchants pm ON pm.id = p.merchant_id
+		LEFT JOIN identity.users tu ON a.target_type = 'user' AND tu.id = a.target_id
+		LEFT JOIN admin.staff ts ON a.target_type = 'staff' AND ts.id = a.target_id
+		LEFT JOIN risk.cases rc ON a.target_type = 'case' AND rc.id = a.target_id
+		LEFT JOIN LATERAL (SELECT c.number FROM risk.case_intents ci JOIN risk.cases c ON c.id = ci.case_id
+		                   WHERE a.target_type = 'payment' AND ci.intent_id = a.target_id LIMIT 1) ic ON true
 		WHERE (($1 AND a.decision IS NULL AND a.expires_at > $2) OR (NOT $1 AND (a.decision IS NOT NULL OR a.expires_at <= $2)))
 		  AND ($3 = '00000000-0000-0000-0000-000000000000'::uuid OR a.target_id = $3)
 		ORDER BY a.requested_at DESC LIMIT $4`, pending, s.now(), target, limit)
@@ -173,7 +184,7 @@ func (s *Service) Approvals(ctx context.Context, pending bool, target uuid.UUID,
 	return pgx.CollectRows(rows, func(r pgx.CollectableRow) (ApprovalRow, error) {
 		var a ApprovalRow
 		err := r.Scan(&a.ID, &a.Kind, &a.Permission, &a.TargetType, &a.TargetID, &a.TargetName, &a.RequestedBy, &a.Requester,
-			&a.RequestNote, &a.RequestedAt, &a.ExpiresAt, &a.Decision, &a.Decider, &a.DecisionNote)
+			&a.RequestNote, &a.RequestedAt, &a.ExpiresAt, &a.Decision, &a.Decider, &a.DecisionNote, &a.Params)
 		if a.Decision == "" && !a.ExpiresAt.After(s.now()) {
 			a.Decision = "lapsed"
 		}

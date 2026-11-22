@@ -9,9 +9,10 @@
 {{range .Data.Pending}}
 <article class="req">
   <div class="req-head">
-    <strong>{{label .Kind}}</strong> · <a href="{{if eq .TargetType "merchant"}}/ops/merchants/{{.TargetID}}{{else}}/ops/payouts{{end}}">{{or .TargetName (short .TargetID)}}</a>
+    <strong>{{label .Kind}}</strong> · <a href="{{targetLink .TargetType .TargetID.String}}">{{or .TargetName (short .TargetID)}}</a>
     <span class="muted">asked by {{.Requester}}, {{when .RequestedAt}} · lapses {{when .ExpiresAt}}</span>
   </div>
+  {{if .Params}}<dl class="params">{{with .Params.email}}<dt>Email</dt><dd>{{.}}</dd>{{end}}{{with .Params.name}}<dt>Name</dt><dd>{{.}}</dd>{{end}}{{if .Params.roles}}<dt>Roles</dt><dd>{{roleNames .Params.roles}}</dd>{{end}}</dl>{{end}}
   <p class="quote">{{.RequestNote}}</p>
   {{if eq .RequestedBy $st.ID}}
     <p class="muted">Your request. Someone else has to decide it.</p>

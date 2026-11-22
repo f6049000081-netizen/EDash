@@ -1,0 +1,126 @@
+{{define "title"}}{{.Data.C.Number}}{{end}}
+{{define "content"}}
+{{$c := .Data.C}}{{$st := .Session.Staff}}{{$csrf := .Session.CSRF}}
+{{$open := and (ne $c.Status "resolved") (ne $c.Status "escalated_aml")}}
+<a href="/ops/cases" class="back">← Risk cases</a>
+<h1>{{$c.Number}} <span class="pill {{pill $c.Status}}">{{label $c.Status}}</span>{{if $c.Overdue}} <span class="pill bad">Late</span>{{end}}</h1>
+<p class="muted">{{$c.Summary}} · score {{$c.Score}} · opened {{when $c.CreatedAt}}{{if $open}} · due {{when $c.SLADue}}{{end}} · {{if $c.Assignee}}with {{$c.Assignee}}{{else}}not assigned{{end}}</p>
+{{if and $open (can $st "case.resolve" "approve")}}
+<form method="post" action="/ops/cases/{{$c.ID}}/take" class="inline"><input type="hidden" name="csrf" value="{{$csrf}}"><button>{{if $c.Assignee}}Take over this case{{else}}Take this case{{end}}</button></form>
+{{end}}
+{{if .Data.Pending}}
+<div class="card">
+  {{range .Data.Pending}}<p class="note">Waiting for approval: <strong>{{label .Kind}}</strong>, asked by {{.Requester}} on {{when .RequestedAt}}. <a href="/ops/approvals">Open approvals</a></p>{{end}}
+</div>
+{{end}}
+{{if not $open}}{{with $c.Resolution}}<p class="quote">{{.}}</p>{{end}}{{end}}
+
+<div class="grid">
+  <section class="card">
+    <h2>Customer</h2>
+    <dl>
+      <dt>Name</dt><dd>{{or $c.Subject.Name "No name set"}} <span class="muted">{{$c.Subject.Phone}}</span></dd>
+      <dt>Account</dt><dd><span class="pill {{pill $c.Subject.Status}}">{{label $c.Subject.Status}}</span> · KYC {{$c.Subject.KYC}}</dd>
+      <dt>Joined</dt><dd>{{when $c.Subject.CreatedAt}}</dd>
+      <dt>Wallet balance</dt><dd class="num">{{etb $c.Subject.Balance}}</dd>
+      <dt>Payments, 30 days</dt><dd class="num">{{$c.Subject.Payments}}</dd>
+    </dl>
+    {{if can $st "user.freeze" "approve"}}
+    {{if eq $c.Subject.Status "active"}}
+    <form method="post" action="/ops/cases/{{$c.ID}}/action" class="stack">
+      <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="kind" value="user.freeze">
+      <label for="freeze-note">Why freeze the account (internal)</label>
+      <textarea id="freeze-note" name="note" required minlength="10" maxlength="2000" rows="2"></textarea>
+      <p class="muted">The customer can't send or pay until it's unfrozen. They're told their account is on hold, not why.</p>
+      <button class="danger">{{if needsSecond $st "user.freeze"}}Ask to freeze{{else}}Freeze{{end}}</button>
+    </form>
+    {{else if eq $c.Subject.Status "frozen"}}
+    <form method="post" action="/ops/cases/{{$c.ID}}/action" class="stack">
+      <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="kind" value="user.unfreeze">
+      <label for="unfreeze-note">Why it can be used again (internal)</label>
+      <textarea id="unfreeze-note" name="note" required minlength="10" maxlength="2000" rows="2"></textarea>
+      <button class="primary">{{if needsSecond $st "user.unfreeze"}}Ask to unfreeze{{else}}Unfreeze{{end}}</button>
+    </form>
+    {{end}}
+    {{end}}
+  </section>
+
+  <section class="card">
+    <h2>Notes</h2>
+    {{range .Data.C.Notes}}<div class="req"><div class="req-head"><strong>{{.Staff}}</strong><span class="muted">{{when .At}}</span></div><p class="quote">{{.Body}}</p></div>{{else}}<p class="muted">No notes yet.</p>{{end}}
+    {{if can $st "case.resolve" "approve"}}
+    <form method="post" action="/ops/cases/{{$c.ID}}/note" class="stack">
+      <input type="hidden" name="csrf" value="{{$csrf}}">
+      <label for="note-body">Add a note (staff only)</label>
+      <textarea id="note-body" name="body" required maxlength="4000" rows="3"></textarea>
+      <button>Add note</button>
+    </form>
+    {{end}}
+  </section>
+</div>
+
+<section class="card">
+  <h2>Payments in this case</h2>
+  {{range $c.Intents}}
+  <article class="req">
+    <div class="req-head">
+      <strong class="num">{{etb .Amount}}</strong> <span>{{label .Kind}} to {{or .Payee "—"}}</span>
+      <span class="pill {{pill .Status}}">{{label .Status}}</span>{{if .Failure}} <span class="muted">{{label .Failure}}</span>{{end}}
+      <span class="muted">{{when .CreatedAt}}</span>
+    </div>
+    {{if .Rules}}<p class="muted">{{rules .Rules}}</p>{{end}}
+    {{if eq .Status "held_for_review"}}
+      {{if eq .Kind "topup"}}
+      <p class="muted">The customer already paid the partner for this top-up. Ending it needs the partner's refund flow, which isn't built yet.</p>
+      {{else}}
+      <div class="grid">
+        {{if can $st "payment.release" "approve"}}
+        <form method="post" action="/ops/cases/{{$c.ID}}/action" class="stack">
+          <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="kind" value="payment.release"><input type="hidden" name="target" value="{{.ID}}">
+          <label for="release-{{.ID}}">Why it can go (internal)</label>
+          <textarea id="release-{{.ID}}" name="note" required minlength="10" maxlength="2000" rows="2"></textarea>
+          <button class="primary">{{if needsSecond $st "payment.release"}}Ask to release{{else}}Release{{end}}</button>
+        </form>
+        {{end}}
+        {{if can $st "payment.decline" "approve"}}
+        <form method="post" action="/ops/cases/{{$c.ID}}/action" class="stack">
+          <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="kind" value="payment.decline"><input type="hidden" name="target" value="{{.ID}}">
+          <label for="decline-{{.ID}}">Why decline it (internal; the payer is only told it didn't go through)</label>
+          <textarea id="decline-{{.ID}}" name="note" required minlength="10" maxlength="2000" rows="2"></textarea>
+          <button class="danger">{{if needsSecond $st "payment.decline"}}Ask to decline{{else}}Decline{{end}}</button>
+        </form>
+        {{end}}
+      </div>
+      {{end}}
+    {{end}}
+  </article>
+  {{end}}
+</section>
+
+{{if and $open (can $st "case.resolve" "approve")}}
+<section class="card">
+  <h2>Close the case</h2>
+  <div class="grid">
+    <form method="post" action="/ops/cases/{{$c.ID}}/action" class="stack">
+      <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="kind" value="case.resolve">
+      <label for="resolve-note">Outcome</label>
+      <textarea id="resolve-note" name="note" required minlength="10" maxlength="2000" rows="2"></textarea>
+      <p class="muted">Decide every held payment first.</p>
+      <button class="primary">Resolve</button>
+    </form>
+    <form method="post" action="/ops/cases/{{$c.ID}}/action" class="stack">
+      <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="kind" value="case.escalate">
+      <label for="escalate-note">What AML compliance should look at</label>
+      <textarea id="escalate-note" name="note" required minlength="10" maxlength="2000" rows="2"></textarea>
+      <p class="muted">For suspected money laundering. The compliance officer decides whether to report it to the Financial Intelligence Service. Don't tell the customer (tipping off is an offence).</p>
+      <button class="danger">Escalate to AML compliance</button>
+    </form>
+  </div>
+</section>
+{{end}}
+
+<section class="card">
+  <h2>History</h2>
+  {{template "auditTable" .Data.Audit}}
+</section>
+{{end}}

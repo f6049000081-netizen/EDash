@@ -451,3 +451,14 @@ func TestARejectedDocumentTellsTheOwnerWhatToResend(t *testing.T) {
 		t.Fatalf("%+v", got)
 	}
 }
+
+func TestAFrozenAccountIsToldItIsOnHold(t *testing.T) {
+	e := setup(t)
+	u := e.user("Kebede", "en")
+	e.handle(event("identity.account_frozen", u, map[string]any{"user_id": u}))
+	e.handle(event("identity.account_unfrozen", u, map[string]any{"user_id": u}))
+	got := e.list(u)
+	if len(got) != 2 || got[1].Title != "Your account is on hold" || got[0].Title != "Your account is active again" {
+		t.Fatalf("%+v", got)
+	}
+}
