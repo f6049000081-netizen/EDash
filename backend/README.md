@@ -247,6 +247,34 @@ Before going live, check these against the spec and test keys that come with the
 - **Gateway and checkout URLs:** different sources give different hosts.
 - **In-app checkout:** opening telebirr's own app instead of the web page isn't built yet.
 
+## Commerce: shops, products and orders
+
+`internal/commerce`, with the routes in `internal/httpapi/commerce.go`. Customers order from approved shops for pickup or delivery and pay from their wallet like any other payment, but the shop is only paid once the customer has the order.
+
+- **Shops.** An approved merchant sets its ordering settings with `PUT /v1/merchants/{id}/shop`: open or not, pickup and/or delivery, delivery fee and area, and a short "about". A shop can't open without at least one active product. `GET /v1/shops` lists approved, active shops for customers.
+- **Products** (`POST` and `PUT /v1/merchants/{id}/products`). Each has a title, an optional description and shelf name, a price, and an optional stock count (`null` means the shop doesn't count it). Status is `active`, `hidden` or `archived`. Owners and managers change them.
+- **Placing an order** (`POST /v1/orders`, with an `Idempotency-Key`). The server prices the order from the catalog, never from the app, and reserves the stock. It then creates a payment intent of kind `order`, which the customer confirms like any payment (PIN or biometric, with the same limits, risk rules and holds). A shop's own staff can't order from it.
+- **Escrow.** The confirmed payment moves the money from the customer's wallet into the platform's `order_escrow` account.
+  - **On handover** it moves from escrow to the shop's `merchant_settlement` account, minus commission, and the normal payout batching picks it up. Commission uses the shop's `qr` plan for now, or the default 50 basis points.
+  - **On any cancellation after payment** it goes straight back to the customer's wallet (entry kind `order_refund`), the payment intent becomes `reversed`, and the stock is returned.
+- **Order status:** `pending_payment` → `placed` → `accepted` → `ready` → `on_the_way` (delivery only) → `delivered`. An order can be `cancelled` at any point before `delivered`.
+  - **The customer** can cancel until the shop accepts. They can also confirm they have the order (`POST /v1/orders/{id}/received`) once it's accepted.
+  - **The shop** (`POST /v1/merchants/{id}/orders/{order}/{action}`) can `accept`, mark it `ready` or `on_the_way`, `hand_over` it with the customer's code, or `cancel` it with a note the customer sees. Owners, managers and cashiers can do this; accountants can only view.
+- **Handover code.** A random four-digit code that only the customer sees, and only once the order is paid. It's never in notifications or in the shop's view, and it's compared in constant time. After 5 wrong tries the code stops working, and the customer confirms with "I have my order" instead.
+- **Timeouts** (`RunOnce`, every minute in the API server): orders not paid within 30 minutes are cancelled, and paid orders the shop hasn't accepted within 20 minutes are cancelled and refunded.
+- **Locking.** The payment intent is always locked before its order, the same order payment confirmation uses, so a cancellation can't deadlock with a payment in flight.
+- **Privacy.** The shop sees the customer's name. The full phone number is shown only on delivery orders in progress, and is masked otherwise.
+- **Events and notifications.** The outbox carries `order.placed`, `order.accepted`, `order.ready`, `order.on_the_way`, `order.delivered` and `order.cancelled`. The notifications service turns them into English and Amharic notices for the customer and for the shop's staff. Orders appear in the activity feed (`?filter=orders`); refunded ones show as `refunded`.
+- **Held payments.** When risk holds an order's payment, the order waits as `pending_payment`. If staff release it in the operations console, the order is placed then.
+- **Checked live** on 2026-11-22 against the dev server: shop set-up, order, PIN payment, accept, ready, a wrong code refused, handover with the right code, ETB 358.20 pending payout from a ETB 360 order, then a second order cancelled and refunded with its stock returned.
+- **Not built yet:**
+  - Product photos and delivery time slots.
+  - Refunds after handover (returns and disputes).
+  - Couriers and delivery tracking.
+  - A separate commission plan for orders.
+  - Orders in the operations console.
+  - Accepted orders that never finish: today nothing closes them, so a timeout or a staff action is needed.
+
 ## What's real and what's sandbox
 
 - **Real:**
@@ -373,4 +401,5 @@ curl -X POST localhost:8080/v1/auth/otp/verify -H 'Content-Type: application/jso
 - **Payout partner:** connect a licensed payout rail (telebirr B2C, EthSwitch) once credentials exist, and add reversing failed payouts to the operations console.
 - **Operations console:** connect the company identity provider with hardware-key MFA; refunds for held top-ups through the partner; an AML compliance view for escalated cases; risk cases for merchants.
 - **Document storage for production:** choose the provider (see KYB documents), then set `S3_*` and `DOCS_KEYS` from the secrets manager. Add malware scanning of uploads before staff open them.
-- **Orders and bills** in the activity feed, once those modules exist.
+- **Bills** in the activity feed, once that module exists.
+- **Commerce:** see "Not built yet" under Commerce.

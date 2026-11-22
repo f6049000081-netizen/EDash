@@ -119,6 +119,8 @@ void main() {
     expect(find.text('Show my QR'), findsOneWidget);
     expect(find.text('Waiting for a payout account'), findsOneWidget);
     expect(find.text('Not set. Add one to receive your money.'), findsOneWidget);
+    expect(find.text('Orders'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Abebe K.'), 200, scrollable: find.byType(Scrollable).first);
     expect(find.text('Abebe K.'), findsOneWidget);
     expect(find.text('+ETB 225.00'), findsOneWidget);
     expect(seen, contains('/v1/merchants/m1/payout-destination'));

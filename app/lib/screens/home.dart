@@ -11,6 +11,7 @@ import 'activity.dart';
 import 'notifications.dart';
 import 'pay.dart';
 import 'profile.dart';
+import 'shop.dart';
 import 'topup.dart';
 
 /// Five tabs: Home, Explore, Pay (raised centre button), Activity, Profile.
@@ -250,30 +251,40 @@ class _HomeTabState extends State<HomeTab> {
   }
 }
 
-/// No mini-apps are live yet. Said plainly rather than filled with placeholders.
-class ExploreTab extends StatelessWidget {
+/// Shops taking orders in the app, and the customer's own orders.
+class ExploreTab extends StatefulWidget {
   const ExploreTab({super.key});
+
+  @override
+  State<ExploreTab> createState() => _ExploreTabState();
+}
+
+class _ExploreTabState extends State<ExploreTab> {
+  final _list = GlobalKey<ShopListState>();
 
   @override
   Widget build(BuildContext context) {
     final s = S.of(context);
-    final c = G1.c(context);
     final text = Theme.of(context).textTheme;
     return SafeArea(
-      child: ListView(padding: const EdgeInsets.all(G1.s4), children: [
-        const SizedBox(height: G1.s2),
-        Text(s.t('explore_title'), style: text.displayMedium),
-        const SizedBox(height: G1.s6),
-        Container(
-          padding: const EdgeInsets.all(G1.s5),
-          decoration: BoxDecoration(color: c.brandTint, borderRadius: BorderRadius.circular(G1.rL)),
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Icon(Icons.storefront_outlined, color: c.brand),
-            const SizedBox(width: G1.s3),
-            Expanded(child: Text(s.t('explore_empty'), style: text.bodyMedium)),
+      child: RefreshIndicator(
+        onRefresh: () async => _list.currentState?.load(),
+        child: ListView(padding: const EdgeInsets.all(G1.s4), children: [
+          const SizedBox(height: G1.s2),
+          Row(children: [
+            Expanded(child: Text(s.t('explore_title'), style: text.displayMedium)),
+            TextButton.icon(
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const MyOrdersScreen())),
+              icon: const Icon(Icons.receipt_outlined),
+              label: Text(s.t('my_orders')),
+            ),
           ]),
-        ),
-      ]),
+          const SizedBox(height: G1.s5),
+          Text(s.t('shops').toUpperCase(), style: text.labelSmall),
+          const SizedBox(height: G1.s2),
+          ShopList(key: _list),
+        ]),
+      ),
     );
   }
 }

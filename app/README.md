@@ -90,7 +90,16 @@ Profile → Business opens the shop for anyone who belongs to one, or the applic
 - **Owners, managers and accountants** also see the next payout, the payout account and the payout history.
 - **Owners** can change the payout account with their PIN. The sheet explains the 48-hour wait.
 - **While the application is reviewed**, owners and managers see the documents it needs and what happened to each (not sent, being checked, accepted, or rejected with the reason). Owners send each one as a photo, taken with the camera or picked from the gallery (`image_picker`), scaled to at most 2400 px. Uploads can take up to 3 minutes.
-- **Not built yet:** orders, products, promotions and insights from the design, because those modules don't exist yet.
+- **Orders and products** (Business → Orders in the app). The orders screen lists orders in progress, with new ones highlighted and their accept-by time, and finished ones. It refreshes every 15 seconds. Cashiers, managers and owners accept orders, mark them ready (or packed, then sent out, for delivery), hand them over by typing the customer's four-digit code, or decline or cancel them with a note to the customer. Accountants only view.
+- **Products and ordering** (owners and managers): taking orders on or off, pickup and delivery with the fee and area, and products with price, shelf, optional stock, hidden or removed.
+- **Not built yet:** promotions and insights from the design.
+
+## Shops and orders (customers)
+
+- **Explore** lists the shops taking orders, and links to My orders.
+- **A shop** shows its products by shelf, with Add and −/+ buttons that stop at the stock, and "Sold out". A closed shop shows its products but takes no orders.
+- **Checkout** shows the basket, pickup or delivery (address required, with a landmark), a note, and the totals. Paying uses the same fingerprint-then-PIN confirmation as any payment (`confirmPayment` in `screens/pay.dart`). If the customer backs out of the PIN, the order is cancelled so its stock is free again.
+- **The order screen** shows the steps, the four-digit handover code in large print, the shop's note if it cancelled, and "I have my order" or "Cancel order" when they're allowed. It refreshes every 15 seconds until the order is finished.
 
 ## Signing key for dev builds
 
@@ -102,7 +111,8 @@ Debug APKs are signed with the debug keystore kept in the `g1androidhome` Docker
 
 - Device keys on iPhone. Android keeps a DPoP key and a biometric-gated payment key in the Android Keystore (`MainActivity.kt`, channel `gebeya/device_keys`). The iOS side (Secure Enclave) isn't written yet, so on iPhone the app uses bearer tokens and the PIN.
 - Push notifications to the lock screen. The bell and the notifications list work (polled every 30 seconds while the app is open). Pushes need a Firebase project: add `google-services.json` and the Firebase messaging plugin, then send the token to `PUT /v1/devices/current/push-token`.
-- Request money, bills, airtime and orders. Their backend modules don't exist yet.
+- Request money, bills and airtime. Their backend modules don't exist yet.
+- Product photos and delivery time slots for orders.
 - PIN reset by SMS code. The server supports it, but the app has no screen for it yet.
 - The Ethiopian calendar and localized date formats.
 - Review of the Afaan Oromo and Tigrinya copy, as above.

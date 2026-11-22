@@ -12,6 +12,7 @@ import '../core/phone.dart';
 import '../l10n/strings.dart';
 import '../ui/theme.dart';
 import '../ui/widgets.dart';
+import 'shop_admin.dart';
 
 Future<T?> _sheet<T>(BuildContext context, Widget child) => showModalBottomSheet<T>(
       context: context,
@@ -428,6 +429,25 @@ class _BusinessScreenState extends State<BusinessScreen> with WidgetsBindingObse
           ),
         ]),
       ),
+      const SizedBox(height: G1.s6),
+      Text(s.t('online_orders').toUpperCase(), style: text.labelSmall),
+      const SizedBox(height: G1.s2),
+      card([
+        ListTile(
+          leading: const Icon(Icons.shopping_bag_outlined),
+          title: Text(s.t('shop_orders')),
+          subtitle: Text(s.t('shop_orders_sub')),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ShopOrdersScreen(m))),
+        ),
+        ListTile(
+          leading: const Icon(Icons.inventory_2_outlined),
+          title: Text(s.t('catalog')),
+          subtitle: Text(s.t('catalog_sub')),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => CatalogScreen(m))),
+        ),
+      ]),
       if (m.seesMoney) ...[
         const SizedBox(height: G1.s6),
         Text(s.t('payouts').toUpperCase(), style: text.labelSmall),
