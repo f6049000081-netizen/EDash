@@ -93,8 +93,8 @@ QR payments split the amount three ways: debit the payer, credit the merchant se
 
 - **Applying** (`POST /v1/merchants`). A signed-in user with a PIN applies with the shop name, registered name, TIN (10 digits), optional trade licence, category and city. The application goes to `kyb_review` and the applicant becomes its `owner`.
   - One application under review per person. Sending the same one again returns it.
-  - A TIN can only be registered once.
-- **Approval** is an operations job. The operations console, with a second person's sign-off, is not built yet. `Approve` gives the shop:
+  - A TIN can only be registered once, unless an earlier application with it was rejected.
+- **Approval** is done by staff in the operations console (below). `Approve` gives the shop:
   - an 8-digit merchant number (random, last digit a Luhn check digit)
   - a static EMVCo merchant-presented QR. The merchant account template (tag 26) uses the GUID `one.gebeya.pay`. Names are folded to plain Latin for tag 59, and Ge'ez names also go in tag 64. The CRC is CRC-16/CCITT-FALSE.
   - Other wallets can parse the QR, but only Gebeya One resolves it until the national interoperable QR scheme registers the template.
@@ -122,7 +122,43 @@ QR payments split the amount three ways: debit the payer, credit the merchant se
   - Payouts of a suspended shop are held.
   - Strangers get 404 for a shop's payout endpoints; cashiers get 403.
 - **Notifications** to owners and accountants: payout sent, and payout on hold (with the reason).
-- **Not built yet:** releasing held payouts and reversing failed ones (an operations tool with maker-checker), merchant sign-up (`POST /v1/merchants`), refunds in payout statements, and the merchant console UI.
+- **Releasing** a payout held after a partner rejection or repeated failures is done by staff in the operations console, with a second person's approval.
+- **Not built yet:** reversing failed payouts, refunds in payout statements, and the web merchant console.
+
+## Operations console
+
+A separate server (`cmd/ops`, port 8090) with server-rendered pages for staff (`internal/opsweb`), the rules in `internal/ops`. Run it only on the company network; the API server doesn't serve these pages.
+
+- **Sign-in** is through the company identity provider (OpenID Connect, code flow with PKCE, state and nonce). The console keeps no passwords.
+  - Staff are invited by email. The first sign-in binds the identity provider's subject to the staff row; after that only the subject counts.
+  - `OPS_REQUIRED_AMR` (e.g. `hwk`) makes the ID token prove a hardware key was used. The server refuses to start without it outside `APP_ENV=dev`.
+  - Sessions: an `__Host-` cookie (HttpOnly, Secure, SameSite=Strict), only its hash stored, 30 minutes idle and 8 hours at most. Signing out ends the session in the database.
+  - Every form carries a per-session CSRF token and is refused from another origin. Pages have no scripts, under a strict Content Security Policy.
+- **Roles and grants** come from `admin.role_permissions`: `full` acts alone, `approve` needs a second person, `view` only reads.
+  - Approving or rejecting applications: `merchants.approve`. Suspending or reinstating: `accounts.freeze`. Releasing a held payout: `payouts.release`.
+- **Maker-checker.** With an `approve` grant, an action becomes a request in `admin.approvals` with a written reason (10+ characters). It is tried in a savepoint first, so a request that can't succeed is refused at once.
+  - Someone else with the grant decides it, with their own note. Nobody decides their own request; the database refuses it too.
+  - Requests lapse after 72 hours. The same request can't be pending twice.
+- **Actions.**
+  - Approve: as in Merchants above. Reject: the application is closed and the TIN can be used again.
+  - Suspend: the QR stops working and payouts are held (`merchant_suspended`); the money stays reserved. Reinstate: those payouts are scheduled again.
+  - Release: only payouts held for a partner rejection or repeated failures, and only to a current payout account. The attempt count starts again.
+  - The owner is notified of a rejection, suspension or reinstatement, with the reason staff wrote.
+- **Audit log.** Every attempt is recorded, including refused ones and sign-ins, with role, IP and device. Rows are hash-chained and can't be updated or deleted; the audit page checks the whole chain.
+- **Not built yet:** KYB document upload (needs object storage), risk cases, staff management in the console (use `devtool invite-staff` for now), and reversing failed payouts.
+
+### Run it locally
+
+```sh
+./run-ops-dev.sh   # http://localhost:8090/ops/, against the g1dev database
+```
+
+The first run makes `backend/.dex/` (git-ignored): a Dex config standing in for the company identity provider, with two staff accounts and random passwords in `.dex/passwords.txt`.
+
+- `tsion.admin@gebeya.dev`: super admin, acts alone.
+- `dawit.risk@gebeya.dev`: risk analyst and finance officer. His suspensions and payout releases need Tsion's approval.
+
+Dex has no MFA, so the dev console doesn't ask for a hardware key.
 
 ## Notifications
 
@@ -304,5 +340,6 @@ curl -X POST localhost:8080/v1/auth/otp/verify -H 'Content-Type: application/jso
   - Show reconciliation exceptions in the admin console.
 - **Device keys in the app:** the server side of DPoP and biometric confirmation is done; the app still has to create the hardware keys and send proofs. Then switch on `DPOP_REQUIRED`.
 - **Key attestation:** check Android key attestation and App Attest so the server knows the DPoP and biometric keys really live in secure hardware.
-- **Payout partner:** connect a licensed payout rail (telebirr B2C, EthSwitch) once credentials exist, and add an operations tool, with maker-checker, to release or reverse held payouts.
+- **Payout partner:** connect a licensed payout rail (telebirr B2C, EthSwitch) once credentials exist, and add reversing failed payouts to the operations console.
+- **Operations console:** KYB document upload (choose object storage first), risk cases, staff management with maker-checker, and connecting the company identity provider with hardware-key MFA.
 - **Orders and bills** in the activity feed, once those modules exist.

@@ -27,6 +27,7 @@ var Topics = []string{
 	"identity.signed_in", "identity.pin_reset", "identity.pin_changed", "identity.refresh_token_reused",
 	"identity.biometric_enrolled",
 	"payout.settled", "payout.on_hold", "merchant.payout_destination_changed", "merchant.applied", "merchant.approved",
+	"merchant.rejected", "merchant.suspended", "merchant.reinstated",
 }
 
 // Push is what a device shows. Data lets the app open the right screen.
@@ -226,6 +227,14 @@ func (s *Service) merchant(ctx context.Context, m outbox.Message, ev merchantEve
 		kind = "merchant_applied"
 	case "merchant.approved":
 		kind = "merchant_approved"
+	case "merchant.rejected", "merchant.suspended", "merchant.reinstated":
+		kind = strings.Replace(m.Topic, ".", "_", 1)
+		reason := strings.TrimSpace(ev.Reason)
+		if reason != "" && !strings.ContainsAny(reason[len(reason)-1:], ".!?") && !strings.HasSuffix(reason, "።") {
+			reason += "."
+		}
+		args["reason"] = reason
+		data["kind"] = "merchant"
 	case "merchant.payout_destination_changed":
 		kind = "payout_destination_changed"
 		args["destination"] = ev.Label

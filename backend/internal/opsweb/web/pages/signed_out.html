@@ -1,0 +1,9 @@
+{{define "title"}}Sign in{{end}}
+{{define "content"}}
+<div class="card lone-card">
+  <div class="brand">Gebeya One <span class="tag">Operations</span></div>
+  <h1>{{if and .Data .Data.Bye}}You're signed out{{else}}Sign in{{end}}</h1>
+  <p class="muted">Use your company account and your hardware security key. Sessions end after 30 minutes without activity.</p>
+  <a class="button primary" href="/ops/login">Sign in with company account</a>
+</div>
+{{end}}

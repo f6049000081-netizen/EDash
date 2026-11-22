@@ -7,6 +7,12 @@ import "strings"
 // translators supply them (the same gap as the SMS text, listed in backend/README.md).
 var texts = map[string]map[string]string{
 	"en": {
+		"merchant_rejected.title":                  "{shop} wasn't approved",
+		"merchant_rejected.body":                   "Reason: {reason} You can apply again with corrected details.",
+		"merchant_suspended.title":                 "{shop} is paused",
+		"merchant_suspended.body":                  "Your shop can't take payments for now. Reason: {reason} Money already earned is kept for you.",
+		"merchant_reinstated.title":                "{shop} can take payments again",
+		"merchant_reinstated.body":                 "{reason} Payouts that were held will be sent.",
 		"money_received.title":                     "Money received",
 		"money_received.body":                      "{name} sent you {amount}.",
 		"payment_succeeded.title":                  "Payment complete",
@@ -49,6 +55,12 @@ var texts = map[string]map[string]string{
 		"payout_destination_changed.body":          "Payouts for {shop} will go to {destination} from {when}. If you didn't make this change, contact support now.",
 	},
 	"am": {
+		"merchant_rejected.title":                  "{shop} አልተፈቀደም",
+		"merchant_rejected.body":                   "ምክንያት፦ {reason} ዝርዝሩን አስተካክለው እንደገና ማመልከት ይችላሉ።",
+		"merchant_suspended.title":                 "{shop} ለጊዜው ቆሟል",
+		"merchant_suspended.body":                  "ሱቅዎ ለአሁን ክፍያ መቀበል አይችልም። ምክንያት፦ {reason} ቀድሞ ያገኙት ገንዘብ ተጠብቆልዎታል።",
+		"merchant_reinstated.title":                "{shop} እንደገና ክፍያ መቀበል ይችላል",
+		"merchant_reinstated.body":                 "{reason} የቆሙ ክፍያዎች ይላካሉ።",
 		"money_received.title":                     "ገንዘብ ደርሶዎታል",
 		"money_received.body":                      "{name} {amount} ልከውልዎታል።",
 		"payment_succeeded.title":                  "ክፍያው ተጠናቋል",

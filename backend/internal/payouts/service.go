@@ -565,6 +565,10 @@ func (s *Service) sendOne(ctx context.Context) (int, error) {
 
 // apply moves a sent payout on according to the partner's answer.
 func (s *Service) apply(ctx context.Context, tx pgx.Tx, id, merchant uuid.UUID, net int64, attempts int, rail, label string, res RailResult, now time.Time) error {
+	var base int
+	if err := tx.QueryRow(ctx, `SELECT attempt_base FROM merchant.payouts WHERE id = $1`, id).Scan(&base); err != nil {
+		return err
+	}
 	switch res.State {
 	case RailPaid:
 		cur := money.ETB
@@ -594,7 +598,7 @@ func (s *Service) apply(ctx context.Context, tx pgx.Tx, id, merchant uuid.UUID, 
 	case RailFailed:
 		// The money is still reserved for the merchant in the hold account.
 		reason := HoldRejected
-		if !res.Permanent && attempts < s.MaxAttempts {
+		if !res.Permanent && attempts-base < s.MaxAttempts {
 			_, err := tx.Exec(ctx, `
 				UPDATE merchant.payouts SET status = 'scheduled', scheduled_for = $2, last_error = $3, updated_at = $4 WHERE id = $1`,
 				id, now.Add(time.Duration(attempts)*30*time.Minute), "partner: "+res.Reason, now)
@@ -611,6 +615,46 @@ func (s *Service) apply(ctx context.Context, tx pgx.Tx, id, merchant uuid.UUID, 
 		return s.event(ctx, tx, "payout.on_hold", id, merchant, net, reason, label)
 	}
 	return nil // pending: CheckSent asks again
+}
+
+// ReleaseTx sends a held payout again, after operations staff (two of them) have checked it. Failures are
+// counted afresh; request ids keep counting up, so the partner never sees an old one reused. A payout
+// held for a missing account, or for a shop that is still suspended, can't be released: it would only
+// be held again.
+func (s *Service) ReleaseTx(ctx context.Context, tx pgx.Tx, payout uuid.UUID) error {
+	var status, reason, merchantStatus string
+	var hasDest bool
+	err := tx.QueryRow(ctx, `
+		SELECT p.status, COALESCE(p.hold_reason, ''), m.status,
+		       EXISTS (SELECT 1 FROM merchant.payout_destinations d WHERE d.merchant_id = p.merchant_id AND d.replaced_at IS NULL)
+		FROM merchant.payouts p JOIN merchant.merchants m ON m.id = p.merchant_id
+		WHERE p.id = $1 FOR UPDATE OF p`, payout).Scan(&status, &reason, &merchantStatus, &hasDest)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	switch {
+	case status != string(OnHold):
+		return &ValidationError{"Only payouts on hold can be released; this one is " + status + "."}
+	case !hasDest:
+		return &ValidationError{"The shop has no payout account. The payout goes by itself once the owner adds one."}
+	case merchantStatus != "active":
+		return &ValidationError{"The shop is " + merchantStatus + ". Reinstate it first."}
+	}
+	_, err = tx.Exec(ctx, `
+		UPDATE merchant.payouts SET status = 'scheduled', hold_reason = NULL, attempt_base = attempts,
+			scheduled_for = $2, updated_at = $2 WHERE id = $1`, payout, s.now())
+	return err
+}
+
+// ResumeAfterReinstateTx schedules the payouts that were held only because the shop was suspended.
+func (s *Service) ResumeAfterReinstateTx(ctx context.Context, tx pgx.Tx, merchant uuid.UUID) error {
+	_, err := tx.Exec(ctx, `
+		UPDATE merchant.payouts SET status = 'scheduled', hold_reason = NULL, scheduled_for = $2, updated_at = $2
+		WHERE merchant_id = $1 AND status = 'on_hold' AND hold_reason = 'merchant_suspended'`, merchant, s.now())
+	return err
 }
 
 // CheckSent asks the partner about transfers that haven't finished.

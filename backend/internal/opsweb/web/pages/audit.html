@@ -1,0 +1,11 @@
+{{define "title"}}Audit log{{end}}
+{{define "content"}}
+<h1>Audit log</h1>
+{{if eq .Data.Broken 0}}
+<p class="flash ok">Hash chain intact: all {{.Data.Checked}} entries check out. The log can't be edited or deleted.</p>
+{{else}}
+<p class="flash bad" role="alert">The hash chain breaks at entry {{.Data.Broken}}. Someone changed the log outside the console. Tell the security team now.</p>
+{{end}}
+<div class="card">{{template "auditTable" .Data.Rows}}</div>
+{{end}}
+

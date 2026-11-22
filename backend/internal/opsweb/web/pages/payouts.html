@@ -1,0 +1,35 @@
+{{define "title"}}Payouts on hold{{end}}
+{{define "content"}}
+{{$st := .Session.Staff}}{{$csrf := .Session.CSRF}}
+<h1>Payouts on hold</h1>
+<p class="muted">The money stays reserved for the merchant while a payout is held. Payouts waiting for an account go by themselves once the owner adds one; those held for a suspended shop go when it is reinstated.</p>
+<div class="card">
+{{if .Data.List}}
+<div class="scroll"><table>
+  <thead><tr><th>Merchant</th><th class="r">Net</th><th>Why</th><th>Account</th><th>Last error</th><th>Created</th><th>Release</th></tr></thead>
+  <tbody>
+  {{range .Data.List}}
+  <tr>
+    <td><a href="/ops/merchants/{{.MerchantID}}">{{.Merchant}}</a></td>
+    <td class="r num">{{etb .Net}}</td>
+    <td>{{label .HoldReason}}</td>
+    <td>{{or .Account "—"}}</td>
+    <td class="muted">{{.LastError}}</td>
+    <td>{{when .CreatedAt}}</td>
+    <td>
+      {{if and (can $st "payout.release" "approve") (or (eq .HoldReason "rejected_by_partner") (eq .HoldReason "too_many_failures"))}}
+      <form method="post" action="/ops/payouts/{{.ID}}/release" class="inline">
+        <input type="hidden" name="csrf" value="{{$csrf}}">
+        <label class="sr" for="note-{{.ID}}">Why it can go now</label>
+        <input id="note-{{.ID}}" name="note" required minlength="10" maxlength="2000" placeholder="Why it can go now">
+        <button>{{if needsSecond $st "payout.release"}}Ask to release{{else}}Release{{end}}</button>
+      </form>
+      {{else}}<span class="muted">—</span>{{end}}
+    </td>
+  </tr>
+  {{end}}
+  </tbody>
+</table></div>
+{{else}}<p class="muted">No payouts are on hold.</p>{{end}}
+</div>
+{{end}}

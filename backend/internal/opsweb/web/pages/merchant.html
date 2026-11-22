@@ -1,0 +1,85 @@
+{{define "title"}}{{.Data.M.TradeName}}{{end}}
+{{define "content"}}
+{{$m := .Data.M}}{{$st := .Session.Staff}}{{$csrf := .Session.CSRF}}
+<a href="/ops/merchants?status=review" class="back">← Merchants</a>
+<h1>{{$m.TradeName}} <span class="pill {{pill $m.Status}}">{{label $m.Status}}</span></h1>
+
+<div class="grid">
+  <section class="card">
+    <h2>Business</h2>
+    <dl>
+      <dt>Registered name</dt><dd>{{$m.LegalName}}</dd>
+      <dt>TIN</dt><dd class="num">{{or $m.TIN "—"}}</dd>
+      <dt>Trade licence</dt><dd>{{or $m.Licence "—"}}</dd>
+      <dt>Category</dt><dd>{{category $m.Category}}</dd>
+      <dt>City</dt><dd>{{$m.City}}</dd>
+      <dt>Applicant</dt><dd>{{or $m.OwnerName "No name set"}} <span class="muted">{{$m.OwnerPhone}} · KYC {{$m.OwnerKYC}}</span></dd>
+      <dt>Applied</dt><dd>{{when $m.CreatedAt}}</dd>
+      {{if $m.MerchantNo}}<dt>Merchant no.</dt><dd class="num">{{$m.MerchantNo}}</dd><dt>Approved</dt><dd>{{when $m.ApprovedAt}}</dd>{{end}}
+      {{if $m.Note}}<dt>Last decision note</dt><dd>{{$m.Note}}</dd>{{end}}
+      <dt>Sales, last 30 days</dt><dd class="num">{{etb $m.Sales30d}}</dd>
+      <dt>Earned, not paid out</dt><dd class="num">{{etb $m.Reserved}}</dd>
+    </dl>
+  </section>
+
+  <section class="card">
+    <h2>Decide</h2>
+    {{if .Data.Pending}}
+      {{range .Data.Pending}}<p class="note">Waiting for approval: <strong>{{label .Kind}}</strong>, asked by {{.Requester}} on {{when .RequestedAt}}. <a href="/ops/approvals">Open approvals</a></p>{{end}}
+    {{end}}
+    {{if or (eq $m.Status "kyb_review") (eq $m.Status "applied")}}
+      {{if can $st "merchant.approve" "approve"}}
+      <p class="muted">Before approving, check the TIN with the Ministry of Revenues and the trade licence with the Ministry of Trade, and that the applicant is the owner or authorised by them. Document upload isn't built yet: ask the applicant for photos through support.</p>
+      <form method="post" action="/ops/merchants/{{$m.ID}}/action" class="stack">
+        <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="kind" value="merchant.approve">
+        <label for="approve-note">What you checked</label>
+        <textarea id="approve-note" name="note" required minlength="10" maxlength="2000" rows="3"></textarea>
+        <button class="primary">{{if needsSecond $st "merchant.approve"}}Ask to approve{{else}}Approve{{end}}</button>
+      </form>
+      <form method="post" action="/ops/merchants/{{$m.ID}}/action" class="stack">
+        <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="kind" value="merchant.reject">
+        <label for="reject-note">Reason for rejecting (the applicant sees this)</label>
+        <textarea id="reject-note" name="note" required minlength="10" maxlength="2000" rows="3"></textarea>
+        <button class="danger">{{if needsSecond $st "merchant.reject"}}Ask to reject{{else}}Reject{{end}}</button>
+      </form>
+      {{else}}<p class="muted">Your role can't decide applications.</p>{{end}}
+    {{else if eq $m.Status "active"}}
+      {{if can $st "merchant.suspend" "approve"}}
+      <form method="post" action="/ops/merchants/{{$m.ID}}/action" class="stack">
+        <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="kind" value="merchant.suspend">
+        <label for="suspend-note">Reason for suspending (the owner sees this)</label>
+        <textarea id="suspend-note" name="note" required minlength="10" maxlength="2000" rows="3"></textarea>
+        <p class="muted">The shop's QR stops working and its payouts are held. Money already earned stays reserved for it.</p>
+        <button class="danger">{{if needsSecond $st "merchant.suspend"}}Ask to suspend{{else}}Suspend{{end}}</button>
+      </form>
+      {{else}}<p class="muted">Nothing for your role to decide.</p>{{end}}
+    {{else if eq $m.Status "suspended"}}
+      {{if can $st "merchant.reinstate" "approve"}}
+      <form method="post" action="/ops/merchants/{{$m.ID}}/action" class="stack">
+        <input type="hidden" name="csrf" value="{{$csrf}}"><input type="hidden" name="kind" value="merchant.reinstate">
+        <label for="reinstate-note">Why it can trade again (the owner sees this)</label>
+        <textarea id="reinstate-note" name="note" required minlength="10" maxlength="2000" rows="3"></textarea>
+        <button class="primary">{{if needsSecond $st "merchant.reinstate"}}Ask to reinstate{{else}}Reinstate{{end}}</button>
+      </form>
+      {{else}}<p class="muted">Nothing for your role to decide.</p>{{end}}
+    {{else}}<p class="muted">This merchant is closed.</p>{{end}}
+  </section>
+</div>
+
+<section class="card">
+  <h2>Payouts</h2>
+  {{if .Data.Payouts}}
+  <div class="scroll"><table>
+    <thead><tr><th>Created</th><th class="r">Net</th><th>Status</th><th>Account</th><th>Last error</th></tr></thead>
+    <tbody>{{range .Data.Payouts}}<tr><td>{{when .CreatedAt}}</td><td class="r num">{{etb .Net}}</td>
+      <td><span class="pill {{pill .Status}}">{{label .Status}}</span>{{if .HoldReason}} <span class="muted">{{label .HoldReason}}</span>{{end}}</td>
+      <td>{{or .Account "—"}}</td><td class="muted">{{.LastError}}</td></tr>{{end}}</tbody>
+  </table></div>
+  {{else}}<p class="muted">No payouts yet.</p>{{end}}
+</section>
+
+<section class="card">
+  <h2>History</h2>
+  {{template "auditTable" .Data.Audit}}
+</section>
+{{end}}

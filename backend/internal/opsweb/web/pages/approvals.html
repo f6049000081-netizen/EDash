@@ -1,0 +1,44 @@
+{{define "title"}}Approvals{{end}}
+{{define "content"}}
+{{$st := .Session.Staff}}{{$csrf := .Session.CSRF}}
+<h1>Approvals</h1>
+<p class="muted">Requests that need a second person. Read the reason, check it yourself, and approve only if you would have done it. Requests lapse after 72 hours.</p>
+<div class="card">
+<h2>Waiting</h2>
+{{if .Data.Pending}}
+{{range .Data.Pending}}
+<article class="req">
+  <div class="req-head">
+    <strong>{{label .Kind}}</strong> · <a href="{{if eq .TargetType "merchant"}}/ops/merchants/{{.TargetID}}{{else}}/ops/payouts{{end}}">{{or .TargetName (short .TargetID)}}</a>
+    <span class="muted">asked by {{.Requester}}, {{when .RequestedAt}} · lapses {{when .ExpiresAt}}</span>
+  </div>
+  <p class="quote">{{.RequestNote}}</p>
+  {{if eq .RequestedBy $st.ID}}
+    <p class="muted">Your request. Someone else has to decide it.</p>
+  {{else if can $st .Kind "approve"}}
+  <form method="post" action="/ops/approvals/{{.ID}}" class="stack">
+    <input type="hidden" name="csrf" value="{{$csrf}}">
+    <label for="note-{{.ID}}">Your note (needed to approve)</label>
+    <textarea id="note-{{.ID}}" name="note" maxlength="2000" rows="2"></textarea>
+    <div class="row">
+      <button class="primary" name="decision" value="approve">Approve and apply</button>
+      <button name="decision" value="reject">Reject</button>
+    </div>
+  </form>
+  {{else}}<p class="muted">Your role can't decide this.</p>{{end}}
+</article>
+{{end}}
+{{else}}<p class="muted">Nothing is waiting.</p>{{end}}
+</div>
+
+<div class="card">
+<h2>Recently decided</h2>
+{{if .Data.Done}}
+<div class="scroll"><table>
+  <thead><tr><th>Request</th><th>For</th><th>Asked by</th><th>Decision</th><th>By</th><th>Note</th></tr></thead>
+  <tbody>{{range .Data.Done}}<tr><td>{{label .Kind}}</td><td>{{or .TargetName (short .TargetID)}}</td><td>{{.Requester}}</td>
+    <td><span class="pill {{pill .Decision}}">{{label .Decision}}</span></td><td>{{or .Decider "—"}}</td><td class="muted">{{.DecisionNote}}</td></tr>{{end}}</tbody>
+</table></div>
+{{else}}<p class="muted">None yet.</p>{{end}}
+</div>
+{{end}}

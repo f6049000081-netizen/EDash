@@ -1,0 +1,29 @@
+{{define "title"}}Merchants{{end}}
+{{define "content"}}
+<h1>Merchants</h1>
+<nav class="tabs" aria-label="Filter merchants">
+  {{range $k := (list "review" "active" "suspended" "closed")}}
+  <a href="/ops/merchants?status={{$k}}" {{if eq $.Data.Which $k}}aria-current="page"{{end}}>{{if eq $k "review"}}To review{{else}}{{label $k}}{{end}}</a>
+  {{end}}
+</nav>
+<div class="card">
+{{if .Data.List}}
+<div class="scroll"><table>
+  <thead><tr><th>Shop</th><th>Registered name</th><th>Category</th><th>City</th><th>Owner</th><th>Applied</th><th>Status</th></tr></thead>
+  <tbody>
+  {{range .Data.List}}
+  <tr>
+    <td><a href="/ops/merchants/{{.ID}}">{{.TradeName}}</a></td>
+    <td>{{.LegalName}}</td>
+    <td>{{category .Category}}</td>
+    <td>{{.City}}</td>
+    <td>{{.OwnerName}} <span class="muted">{{.OwnerPhone}}</span></td>
+    <td>{{when .CreatedAt}}</td>
+    <td><span class="pill {{pill .Status}}">{{label .Status}}</span></td>
+  </tr>
+  {{end}}
+  </tbody>
+</table></div>
+{{else}}<p class="muted">Nothing here.</p>{{end}}
+</div>
+{{end}}

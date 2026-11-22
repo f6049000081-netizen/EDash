@@ -186,65 +186,110 @@ func (s *Service) Apply(ctx context.Context, user uuid.UUID, a Application) (*Me
 	return out, err
 }
 
-// Approve activates a reviewed merchant: it gets a merchant number and a static payment QR. The
-// operations console calls it after a second person has approved (maker-checker); it is safe to call
-// again, and fills in whatever an active merchant is missing.
+// Approve activates a reviewed merchant in its own transaction (see ApproveTx).
 func (s *Service) Approve(ctx context.Context, merchant, approvedBy uuid.UUID) (*Merchant, error) {
-	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
-		var status, name, category, city string
-		var no *string
-		err := tx.QueryRow(ctx, `
-			SELECT status, trade_name, category_code, COALESCE(city, ''), merchant_no FROM merchant.merchants WHERE id = $1 FOR UPDATE`,
-			merchant).Scan(&status, &name, &category, &city, &no)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrNotFound
-		}
-		if err != nil {
-			return err
-		}
-		if status != "applied" && status != "kyb_review" && status != "active" {
-			return &ConflictError{"Only applications under review can be approved; this merchant is " + status + "."}
-		}
-		now := s.now()
-		if no == nil {
-			for range 5 {
-				n := NewMerchantNo()
-				tag, err := tx.Exec(ctx, `
-					UPDATE merchant.merchants SET merchant_no = $2 WHERE id = $1
-					AND NOT EXISTS (SELECT 1 FROM merchant.merchants WHERE merchant_no = $2)`, merchant, n)
-				if err != nil {
-					return err
-				}
-				if tag.RowsAffected() == 1 {
-					no = &n
-					break
-				}
-			}
-			if no == nil {
-				return errors.New("merchants: no free merchant number")
-			}
-		}
-		if status != "active" {
-			if _, err := tx.Exec(ctx, `
-				UPDATE merchant.merchants SET status = 'active', approved_by = $2, approved_at = $3, updated_at = $3 WHERE id = $1`,
-				merchant, approvedBy, now); err != nil {
-				return err
-			}
-			if err := platform.WriteOutbox(ctx, tx, "merchant.approved", merchant, map[string]any{"merchant_id": merchant}); err != nil {
-				return err
-			}
-		}
-		payload := StaticQR(*no, name, category, city)
-		_, err = tx.Exec(ctx, `
-			INSERT INTO payments.qr_codes (owner_type, owner_id, mode, payload, created_at)
-			SELECT 'merchant', $1, 'static', $2, $3
-			WHERE NOT EXISTS (SELECT 1 FROM payments.qr_codes WHERE payload = $2)`, merchant, payload, now)
-		return err
-	})
+	err := pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error { return s.ApproveTx(ctx, tx, merchant, approvedBy) })
 	if err != nil {
 		return nil, err
 	}
 	return s.get(ctx, s.Pool, uuid.Nil, merchant)
+}
+
+// ApproveTx activates a reviewed merchant: it gets a merchant number and a static payment QR. The
+// operations console calls it inside the transaction that records the decision. It is safe to call
+// again on an active merchant, and fills in whatever it is missing.
+func (s *Service) ApproveTx(ctx context.Context, tx pgx.Tx, merchant, approvedBy uuid.UUID) error {
+	var status, name, category, city string
+	var no *string
+	err := tx.QueryRow(ctx, `
+			SELECT status, trade_name, category_code, COALESCE(city, ''), merchant_no FROM merchant.merchants WHERE id = $1 FOR UPDATE`,
+		merchant).Scan(&status, &name, &category, &city, &no)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	if status != "applied" && status != "kyb_review" && status != "active" {
+		return &ConflictError{"Only applications under review can be approved; this merchant is " + status + "."}
+	}
+	now := s.now()
+	if no == nil {
+		for range 5 {
+			n := NewMerchantNo()
+			tag, err := tx.Exec(ctx, `
+					UPDATE merchant.merchants SET merchant_no = $2 WHERE id = $1
+					AND NOT EXISTS (SELECT 1 FROM merchant.merchants WHERE merchant_no = $2)`, merchant, n)
+			if err != nil {
+				return err
+			}
+			if tag.RowsAffected() == 1 {
+				no = &n
+				break
+			}
+		}
+		if no == nil {
+			return errors.New("merchants: no free merchant number")
+		}
+	}
+	if status != "active" {
+		if _, err := tx.Exec(ctx, `
+				UPDATE merchant.merchants SET status = 'active', approved_by = $2, approved_at = $3, updated_at = $3 WHERE id = $1`,
+			merchant, approvedBy, now); err != nil {
+			return err
+		}
+		if err := platform.WriteOutbox(ctx, tx, "merchant.approved", merchant, map[string]any{"merchant_id": merchant}); err != nil {
+			return err
+		}
+	}
+	payload := StaticQR(*no, name, category, city)
+	_, err = tx.Exec(ctx, `
+			INSERT INTO payments.qr_codes (owner_type, owner_id, mode, payload, created_at)
+			SELECT 'merchant', $1, 'static', $2, $3
+			WHERE NOT EXISTS (SELECT 1 FROM payments.qr_codes WHERE payload = $2)`, merchant, payload, now)
+	return err
+}
+
+// RejectTx turns down an application. The merchant is closed (so the TIN can be used again) and the
+// reason is shown to the applicant.
+func (s *Service) RejectTx(ctx context.Context, tx pgx.Tx, merchant uuid.UUID, reason string) error {
+	return s.transition(ctx, tx, merchant, []string{"applied", "kyb_review"}, "closed", "merchant.rejected", reason)
+}
+
+// SuspendTx stops an active merchant taking payments (its QR stops resolving) and holds its payouts.
+// Money already earned stays reserved for it.
+func (s *Service) SuspendTx(ctx context.Context, tx pgx.Tx, merchant uuid.UUID, reason string) error {
+	return s.transition(ctx, tx, merchant, []string{"active"}, "suspended", "merchant.suspended", reason)
+}
+
+// ReinstateTx lets a suspended merchant take payments again. Payouts held only because of the
+// suspension are scheduled again by the payouts service.
+func (s *Service) ReinstateTx(ctx context.Context, tx pgx.Tx, merchant uuid.UUID, reason string) error {
+	return s.transition(ctx, tx, merchant, []string{"suspended"}, "active", "merchant.reinstated", reason)
+}
+
+func (s *Service) transition(ctx context.Context, tx pgx.Tx, merchant uuid.UUID, from []string, to, topic, note string) error {
+	var status string
+	err := tx.QueryRow(ctx, `SELECT status FROM merchant.merchants WHERE id = $1 FOR UPDATE`, merchant).Scan(&status)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return ErrNotFound
+	}
+	if err != nil {
+		return err
+	}
+	allowed := false
+	for _, f := range from {
+		allowed = allowed || status == f
+	}
+	if !allowed {
+		return &ConflictError{"This merchant is " + status + "; that can't change to " + to + "."}
+	}
+	now := s.now()
+	if _, err := tx.Exec(ctx, `UPDATE merchant.merchants SET status = $2, decision_note = $3, updated_at = $4 WHERE id = $1`,
+		merchant, to, note, now); err != nil {
+		return err
+	}
+	return platform.WriteOutbox(ctx, tx, topic, merchant, map[string]any{"merchant_id": merchant, "reason": note})
 }
 
 // NewMerchantNo is a random 8-digit merchant number whose last digit is a Luhn check digit, so a

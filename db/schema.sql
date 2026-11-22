@@ -387,7 +387,7 @@ CREATE TABLE merchant.merchants (
     id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     legal_name          TEXT NOT NULL,
     trade_name          TEXT NOT NULL,
-    tin                 TEXT UNIQUE,            -- Ethiopian taxpayer ID
+    tin                 TEXT,                   -- Ethiopian taxpayer ID; unique among merchants that aren't closed
     business_licence    TEXT,
     category_code       TEXT NOT NULL,          -- MCC-style category
     tier                TEXT NOT NULL DEFAULT 'micro' CHECK (tier IN ('micro', 'sme', 'enterprise')),
@@ -397,11 +397,14 @@ CREATE TABLE merchant.merchants (
     merchant_no         TEXT UNIQUE CHECK (merchant_no ~ '^[0-9]{8}$'),  -- given on approval; printed on the shop's QR
     city                TEXT,
     applied_by          UUID REFERENCES identity.users(id),
+    decision_note       TEXT,                   -- why operations rejected, suspended or reinstated it (shown to the owner)
     approved_by         UUID,
     approved_at         TIMESTAMPTZ,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE UNIQUE INDEX merchants_tin_open ON merchant.merchants (tin) WHERE status <> 'closed';
 
 CREATE TABLE merchant.branches (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -468,6 +471,7 @@ CREATE TABLE merchant.payouts (
     rail            payments.rail,
     partner_ref     TEXT,
     attempts        INTEGER NOT NULL DEFAULT 0,
+    attempt_base    INTEGER NOT NULL DEFAULT 0,  -- attempts when staff last released it; failures count from here
     last_error      TEXT,                   -- e.g. rail_unavailable while no licensed payout partner is configured
     scheduled_for   TIMESTAMPTZ NOT NULL,
     sent_at         TIMESTAMPTZ,
@@ -775,8 +779,27 @@ CREATE TABLE admin.approvals (
     decision        TEXT CHECK (decision IN ('approved', 'rejected')),
     decided_at      TIMESTAMPTZ,
     expires_at      TIMESTAMPTZ NOT NULL,
+    request_note    TEXT NOT NULL,              -- why the maker asks for it
+    decision_note   TEXT,
     CHECK (decided_by IS NULL OR decided_by <> requested_by)   -- nobody approves their own request
 );
+CREATE INDEX ON admin.approvals (requested_at) WHERE decision IS NULL;
+
+-- Who staff are signed in as on the operations console. The cookie holds a random token; only its
+-- SHA-256 is stored. Sessions end after 30 minutes idle or 8 hours, whichever comes first.
+CREATE TABLE admin.staff_sessions (
+    token_hash      TEXT PRIMARY KEY,
+    staff_id        UUID NOT NULL REFERENCES admin.staff(id),
+    csrf_token      TEXT NOT NULL,
+    ip              INET,
+    user_agent      TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_seen_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    expires_at      TIMESTAMPTZ NOT NULL,
+    revoked_at      TIMESTAMPTZ
+);
+CREATE INDEX ON admin.staff_sessions (staff_id);
+
 
 CREATE TABLE admin.audit_log (
     id              BIGSERIAL,
@@ -855,3 +878,41 @@ CREATE TABLE notify.push_tokens (
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX ON notify.push_tokens (user_id);
+
+-- ---------------------------------------------------------------------------
+-- ADMIN reference data: the roles and the permission matrix from the design (Roles and audit log).
+-- full = act alone, approve = needs a second person, view = read only (masked).
+-- ---------------------------------------------------------------------------
+INSERT INTO admin.roles (id, name, description) VALUES
+    ('super_admin', 'Super admin', 'Everything, but money and access changes still need a second person'),
+    ('finance_officer', 'Finance officer', 'Refunds, payouts, reconciliation, commission'),
+    ('risk_analyst', 'Risk analyst', 'Fraud cases, freezes, personal data when a case needs it'),
+    ('support_agent', 'Support agent', 'Customer help, small refunds'),
+    ('merchant_ops', 'Merchant ops', 'Merchant applications and onboarding'),
+    ('content_editor', 'Content editor', 'Campaigns and banners');
+
+INSERT INTO admin.role_permissions (role_id, permission, grant_level) VALUES
+    ('super_admin', 'transactions.view', 'full'), ('finance_officer', 'transactions.view', 'full'),
+    ('risk_analyst', 'transactions.view', 'full'), ('support_agent', 'transactions.view', 'view'),
+    ('merchant_ops', 'transactions.view', 'view'),
+    ('super_admin', 'pii.view', 'view'), ('risk_analyst', 'pii.view', 'view'), ('support_agent', 'pii.view', 'view'),
+    ('super_admin', 'refunds.small', 'full'), ('finance_officer', 'refunds.small', 'full'), ('support_agent', 'refunds.small', 'full'),
+    ('super_admin', 'refunds.large', 'approve'), ('finance_officer', 'refunds.large', 'approve'),
+    ('super_admin', 'accounts.freeze', 'approve'), ('risk_analyst', 'accounts.freeze', 'approve'),
+    ('super_admin', 'recon.resolve', 'full'), ('finance_officer', 'recon.resolve', 'full'),
+    ('super_admin', 'commission.change', 'approve'), ('finance_officer', 'commission.change', 'approve'),
+    ('super_admin', 'merchants.approve', 'full'), ('merchant_ops', 'merchants.approve', 'full'),
+    ('risk_analyst', 'merchants.approve', 'view'),
+    ('super_admin', 'campaigns.publish', 'full'), ('content_editor', 'campaigns.publish', 'approve'),
+    ('super_admin', 'reports.export', 'full'), ('finance_officer', 'reports.export', 'full'),
+    ('risk_analyst', 'reports.export', 'full'), ('merchant_ops', 'reports.export', 'view'),
+    ('super_admin', 'staff.manage', 'approve'),
+    ('super_admin', 'settings.change', 'approve'),
+    -- Not in the design's matrix; added with the payout and audit screens.
+    ('super_admin', 'payouts.release', 'approve'), ('finance_officer', 'payouts.release', 'approve'),
+    ('risk_analyst', 'payouts.release', 'view'), ('merchant_ops', 'payouts.release', 'view'),
+    ('super_admin', 'audit.view', 'full'), ('finance_officer', 'audit.view', 'full'), ('risk_analyst', 'audit.view', 'full');
+
+-- Grants the first staff roles (granted_by must be someone else). It can't sign in.
+INSERT INTO admin.staff (id, email, full_name, sso_subject, status)
+VALUES ('00000000-0000-0000-0000-000000000001', 'bootstrap@system.invalid', 'System bootstrap', 'system:bootstrap', 'suspended');

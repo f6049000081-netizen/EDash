@@ -89,7 +89,8 @@ func (e *env) sale(gross, commission int64) uuid.UUID {
 	id := uuid.New()
 	err := pgx.BeginFunc(e.ctx, pool, func(tx pgx.Tx) error {
 		cur := money.ETB
-		payer, err := e.l.EnsureAccount(e.ctx, tx, ledger.Suspense, ledger.OwnerPlatform, uuid.Nil, cur)
+		// The customer's money comes in from a (per-test) partner, like a top-up, so no shared account is drawn down.
+		payer, err := e.l.EnsureAccount(e.ctx, tx, ledger.PartnerClearing, ledger.OwnerPartner, e.merchant, cur)
 		if err != nil {
 			return err
 		}

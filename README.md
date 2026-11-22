@@ -16,7 +16,7 @@ Gebeya One is a wallet-centred super app for Ethiopia and the diaspora. This rep
 ```
 db/schema.sql      PostgreSQL 16 schema: 13 domain schemas, double-entry ledger, RBAC, audit log
 api/openapi.yaml   OpenAPI 3.1 contract for Phase 1 (auth, wallet, payments, bills, merchants, admin, webhooks)
-backend/           Go service: sign-in, ledger, payments, telebirr top-ups, reconciliation, outbox relay and notifications (see backend/README.md)
+backend/           Go service: sign-in, ledger, payments, telebirr top-ups, reconciliation, notifications, merchants, payouts, operations console (see backend/README.md)
 app/               Flutter consumer app: sign-in, wallet, send, QR pay, top-up, activity, notifications, profile (see app/README.md)
 ```
 

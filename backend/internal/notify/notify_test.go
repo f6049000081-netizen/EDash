@@ -424,3 +424,16 @@ func TestMerchantNotificationsGoToOwnersAndAccountants(t *testing.T) {
 		t.Errorf("cashier: %+v", c)
 	}
 }
+
+func TestMerchantDecisionsTellTheOwnerWhy(t *testing.T) {
+	e := setup(t)
+	shop := e.merchant("Kaldi Piassa")
+	owner := e.user("Owner", "en")
+	e.exec(`INSERT INTO merchant.members (merchant_id, user_id, role) VALUES ($1, $2, 'owner')`, shop, owner)
+	e.handle(event("merchant.suspended", shop, map[string]any{"merchant_id": shop, "reason": "Unusual refunds under review"}))
+	got := e.list(owner)
+	if len(got) != 1 || got[0].Title != "Kaldi Piassa is paused" ||
+		got[0].Body != "Your shop can't take payments for now. Reason: Unusual refunds under review. Money already earned is kept for you." {
+		t.Fatalf("%+v", got)
+	}
+}

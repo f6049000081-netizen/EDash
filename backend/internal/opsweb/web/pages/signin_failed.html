@@ -1,0 +1,10 @@
+{{define "title"}}Sign-in failed{{end}}
+{{define "content"}}
+<div class="card lone-card">
+  <div class="brand">Gebeya One <span class="tag">Operations</span></div>
+  <h1>Couldn't sign you in</h1>
+  <p>{{.Data.Reason}}</p>
+  <p class="muted">The attempt was recorded.</p>
+  <a class="button" href="/ops/login">Try again</a>
+</div>
+{{end}}
