@@ -138,7 +138,10 @@ class _SendScreenState extends State<SendScreen> {
       _keyFor = ''; // the next review is a new payment
       Navigator.of(context).push(MaterialPageRoute(builder: (_) => ReviewScreen(intent: intent)));
     } on ApiProblem catch (p) {
-      setState(() => _problem = p);
+      // Too many new numbers: say it in the app's language.
+      setState(() => _problem = p.code == 'rate_limited'
+          ? ApiProblem(p.status, p.code, p.title, S.of(context).t('lookups_limited'), retryAfter: p.retryAfter)
+          : p);
     } finally {
       if (mounted) setState(() => _busy = false);
     }

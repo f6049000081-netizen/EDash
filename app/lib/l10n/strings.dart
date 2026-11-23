@@ -50,6 +50,8 @@ class S {
       'devices_since': 'signed in {date}',
       'devices_biometric': 'fingerprint payments on',
       'devices_secure_key': 'key in secure hardware',
+      'lookups_limited':
+          "You've started payments to a lot of new numbers. To protect people's privacy, try again later. People you've paid before aren't affected.",
       'devices_sign_out_title': 'Sign out {device}?',
       'devices_sign_out_body': 'Enter your PIN. It signs out at once, and fingerprint payments on it are turned off.',
       'devices_sign_out_others': 'Sign out all other phones',
@@ -502,6 +504,7 @@ class S {
       'devices_since': 'የገቡት {date}',
       'devices_biometric': 'በጣት አሻራ ክፍያ በርቷል',
       'devices_secure_key': 'ቁልፉ በደህንነት ቺፕ ውስጥ',
+      'lookups_limited': 'ለብዙ አዳዲስ ቁጥሮች ክፍያ ጀምረዋል። የሰዎችን ግላዊነት ለመጠበቅ ቆይተው እንደገና ይሞክሩ። ከዚህ በፊት የከፈሏቸው ሰዎች አይነኩም።',
       'devices_sign_out_title': '{device} ይውጣ?',
       'devices_sign_out_body': 'ፒንዎን ያስገቡ። ወዲያውኑ ይወጣል፣ በላዩ ላይ ያለው የጣት አሻራ ክፍያም ይጠፋል።',
       'devices_sign_out_others': 'ሌሎቹን ስልኮች በሙሉ አስወጣ',

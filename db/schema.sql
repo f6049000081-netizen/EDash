@@ -810,6 +810,19 @@ CREATE SEQUENCE risk.case_number_seq START 20001;
 
 -- A case opens when a payment is held for review. Further held payments from the same person join their
 -- open case. Staff work it in the operations console.
+-- Phone numbers looked up by starting a transfer (payee_phone), which shows the recipient's name. Counted
+-- per account and per phone to stop people harvesting who has an account (payments/lookups.go). Kept 48 h.
+CREATE TABLE payments.payee_lookups (
+    id              BIGSERIAL PRIMARY KEY,
+    user_id         UUID NOT NULL REFERENCES identity.users(id),
+    device_id       UUID,
+    number_hash     TEXT NOT NULL,              -- SHA-256 of the number; only distinct numbers count
+    found           BOOLEAN NOT NULL,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX ON payments.payee_lookups (user_id, created_at);
+CREATE INDEX ON payments.payee_lookups (device_id, created_at) WHERE device_id IS NOT NULL;
+
 CREATE TABLE risk.cases (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     number          TEXT NOT NULL UNIQUE DEFAULT 'FR-' || nextval('risk.case_number_seq'),

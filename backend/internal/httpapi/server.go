@@ -8,6 +8,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
@@ -210,9 +211,13 @@ func (s *Server) createIntent(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &body) {
 		return
 	}
+	var device *uuid.UUID
+	if d := platform.PrincipalFrom(r.Context()).DeviceID; d != uuid.Nil {
+		device = &d
+	}
 	in, err := s.Payments.CreateIntent(r.Context(), platform.UserFrom(r.Context()), payments.CreateRequest{
 		Kind: body.Kind, Amount: body.Amount, PayeeUserID: body.PayeeUserID, PayeePhone: body.PayeePhone, QRPayload: body.QRPayload,
-		FundingSourceID: body.FundingSourceID, Note: body.Note,
+		FundingSourceID: body.FundingSourceID, Note: body.Note, DeviceID: device,
 	})
 	if err != nil {
 		s.fail(w, err)
@@ -337,8 +342,19 @@ func present(in *payments.Intent) intentJSON {
 func (s *Server) fail(w http.ResponseWriter, err error) {
 	var v *payments.ValidationError
 	var limit *payments.LimitError
+	var lookups *payments.LookupLimitError
 	var p *platform.Problem
 	switch {
+	case errors.As(err, &lookups):
+		secs := int(lookups.RetryAfter.Seconds())
+		w.Header().Set("Retry-After", strconv.Itoa(secs))
+		when := "in an hour"
+		if lookups.Daily {
+			when = "tomorrow"
+		}
+		p = platform.NewProblem(http.StatusTooManyRequests, "rate_limited", "Too many new numbers",
+			"You've started payments to a lot of new numbers. To protect people's privacy, try again "+when+
+				". People you've paid before aren't affected.")
 	case errors.As(err, &v):
 		p = platform.NewProblem(http.StatusUnprocessableEntity, "validation_failed", "Check the details", v.Msg)
 	case errors.Is(err, payments.ErrNotFound):

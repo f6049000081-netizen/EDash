@@ -66,6 +66,9 @@ type Service struct {
 	// Orders follows order payments (set by commerce). Nil: order payments are refused.
 	Orders OrderHook
 
+	// Lookups limits phone-number lookups when starting a transfer. Zero: no limit.
+	Lookups LookupLimits
+
 	now func() time.Time
 }
 
@@ -78,7 +81,7 @@ func (s *Service) nowOr() time.Time {
 
 func NewService(pool *pgxpool.Pool, l *ledger.Ledger, risk RiskEngine, presence PresenceVerifier) *Service {
 	return &Service{Pool: pool, Ledger: l, Risk: risk, Presence: presence, DefaultMerchantBps: 50,
-		Rails: map[string]TopUpRail{}, TopUp: DefaultTopUpLimits()}
+		Rails: map[string]TopUpRail{}, TopUp: DefaultTopUpLimits(), Lookups: DefaultLookupLimits()}
 }
 
 // ---------------------------------------------------------------------------
@@ -101,12 +104,9 @@ func (s *Service) CreateIntent(ctx context.Context, payerID uuid.UUID, req Creat
 	switch req.Kind {
 	case KindP2P:
 		if req.PayeeUserID == nil && req.PayeePhone != "" {
-			// Unknown, inactive and malformed numbers all look the same to the caller.
-			var id uuid.UUID
-			err := s.Pool.QueryRow(ctx, `SELECT id FROM identity.users WHERE phone_e164 = $1 AND status = 'active'`, req.PayeePhone).Scan(&id)
-			if errors.Is(err, pgx.ErrNoRows) {
-				return nil, ErrPayeeNotFound
-			}
+			// Unknown, inactive and malformed numbers all look the same to the caller, and every lookup
+			// counts against the limits (see lookups.go).
+			id, err := s.lookupPayee(ctx, payerID, req.DeviceID, req.PayeePhone)
 			if err != nil {
 				return nil, err
 			}

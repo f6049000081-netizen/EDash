@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: EDash API
-  version: 0.7.0
+  version: 0.8.0
   summary: Phase 1 contract for the consumer app, merchant app and admin console.
   description: |
     Conventions
@@ -468,6 +468,11 @@ paths:
       description: |
         Returns the exact fee, total and points before the user confirms. Used for P2P, QR merchant
         payments, bills, airtime, orders, mini-app payments and transfers abroad.
+
+        A transfer by `payee_phone` shows the recipient's name, so phone-number lookups are limited per
+        account and per phone: distinct new numbers, 20 an hour and 50 a day, of which 15 a day may have no
+        account. People the payer has already exchanged money with don't count. Over a limit the answer is
+        429 `rate_limited` with `Retry-After`; reaching a daily limit also opens a risk case.
       operationId: createPaymentIntent
       parameters: [ { $ref: '#/components/parameters/IdempotencyKey' } ]
       requestBody:
@@ -497,6 +502,7 @@ paths:
         '400': { $ref: '#/components/responses/Problem' }
         '409': { $ref: '#/components/responses/Problem' }
         '422': { $ref: '#/components/responses/Problem' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
 
   /v1/payment-intents/{id}:
     get:

@@ -124,6 +124,17 @@ QR payments split the amount three ways: debit the payer, credit the merchant se
   - A PIN reset clears biometric keys on every device. Turning it on sends a security notification to all the user's devices.
   - Refused signatures (`biometric_not_enrolled`, `biometric_failed`) tell the app to ask for the PIN.
 
+## Payee lookups
+
+Starting a transfer by phone number (`payee_phone`) shows the recipient's verified name before the PIN, as the design asks, so people see who they're paying. Unchecked, that would let anyone find out which numbers have accounts and whose they are. `payments/lookups.go` limits it:
+
+- **What counts:** distinct numbers per account and per phone (the session's device, so a second account on the same phone shares the limit). The same number again in the day is free. People the payer has already sent money to or received it from never count.
+- **Limits** (`payments.DefaultLookupLimits`): 20 new numbers an hour, 50 a day, and of those, 15 a day without an account. Unknown, inactive and malformed numbers all count as "no account" and look the same to the caller.
+- **Over a limit:** 429 `rate_limited` with `Retry-After` (when the oldest counted lookup leaves the window). The app shows its own message in the user's language.
+- **Daily limit reached:** a risk case is opened, or added to the customer's open one, saying "Looked up many phone numbers (possible number harvesting)", score 50, due in 24 hours. The hourly limit alone doesn't open one.
+- Lookups are kept 48 hours in `payments.payee_lookups`, with the number stored only as a SHA-256 hash. Parallel requests can't slip past a limit (advisory locks per account and per phone).
+- QR payments aren't counted: a QR code is given out by the shop.
+
 ## Merchants
 
 - **Applying** (`POST /v1/merchants`). A signed-in user with a PIN applies with the shop name, registered name, TIN (10 digits), optional trade licence, category and city. The application goes to `kyb_review` and the applicant becomes its `owner`.
@@ -469,7 +480,6 @@ curl -X POST localhost:8080/v1/auth/otp/verify -H 'Content-Type: application/jso
 - **Localisation:** Afaan Oromo and Tigrinya SMS text, plus a native-speaker review of the Amharic.
 - **Fraud review** of the allowed country prefixes. `+1` also reaches Caribbean numbers that SMS-pumping fraud often targets.
 - **Limit values:** compliance fills `identity.kyc_limits`; then switch on `LimitsRequired`.
-- **Payee lookup throttling:** `payee_phone` shows the recipient's verified name before the PIN (as the design requires), which also lets someone check which numbers have accounts. Rate-limit lookups per user and per device, and flag accounts that create many unconfirmed intents.
 - **Push to phones:** create the Firebase project, set `FCM_SERVICE_ACCOUNT_FILE`, and add the Firebase SDK and `google-services.json` to the app so it registers its token.
 - **Notification translations:** Afaan Oromo and Tigrinya text, and a native-speaker check of the Amharic.
 - **telebirr go-live:**

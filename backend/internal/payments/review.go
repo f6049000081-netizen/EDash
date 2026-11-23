@@ -22,6 +22,7 @@ var RuleText = map[string]string{
 	"TOPUP_DUPLICATE_PARTNER_REF":   "Top-up reused a partner payment reference",
 	"TOPUP_LIMIT_EXCEEDED":          "Top-up would go over the wallet's balance limit",
 	"TOPUP_AMOUNT_MISMATCH":         "Top-up amount didn't match what was paid",
+	"PAYEE_LOOKUPS":                 lookupRuleText,
 }
 
 // openCaseTx records a held payment on the payer's open risk case, opening one if there's none.
