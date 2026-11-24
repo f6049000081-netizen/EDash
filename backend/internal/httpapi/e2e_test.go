@@ -35,6 +35,7 @@ import (
 	"superapp/backend/internal/merchants"
 	"superapp/backend/internal/notify"
 	"superapp/backend/internal/outbox"
+	"superapp/backend/internal/outbox/outboxtest"
 	"superapp/backend/internal/payments"
 	"superapp/backend/internal/payouts"
 	"superapp/backend/internal/platform"
@@ -151,7 +152,17 @@ func TestEndToEndSignInAndPay(t *testing.T) {
 	if st, p := anon.do("GET", "/v1/wallet/balances", nil, false); st != http.StatusUnauthorized || p["code"] != "unauthenticated" {
 		t.Fatalf("anonymous: %d %v", st, p)
 	}
-	anon.token = "eyJhbGciOiJub25lIn0.e30."
+	// Every response carries the safe defaults: no caching of personal data, no sniffing, no framing.
+	if res, err := http.Get(anon.base + "/v1/wallet/balances"); err != nil {
+		t.Fatal(err)
+	} else {
+		res.Body.Close()
+		h := res.Header
+		if h.Get("Cache-Control") != "no-store" || h.Get("X-Content-Type-Options") != "nosniff" || h.Get("X-Frame-Options") != "DENY" {
+			t.Errorf("security headers: %v", h)
+		}
+	}
+	anon.token = "eyJhbGciOiJub25lIn0.e30." // gitleaks:allow (a forged unsigned token the API must refuse)
 	if st, _ := anon.do("GET", "/v1/me", nil, false); st != http.StatusUnauthorized {
 		t.Fatalf("alg none token: %d", st)
 	}
@@ -267,6 +278,7 @@ func TestEndToEndSignInAndPay(t *testing.T) {
 
 	// Notifications: the outbox relay hands events to the notifications service (in-process here, as on
 	// the dev server). Other packages' tests add outbox rows meanwhile, so run it until Bob's shows up.
+	outboxtest.Exclusive(t, pool) // the outbox package's tests drain the same table
 	relay := &outbox.Relay{Pool: pool, Publisher: outbox.Direct{Handlers: []outbox.Handler{notifier}}}
 	var bobNotes map[string]any
 	for deadline := time.Now().Add(time.Minute); time.Now().Before(deadline); {

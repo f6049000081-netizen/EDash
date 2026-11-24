@@ -1,5 +1,5 @@
 # One image per command: docker build --build-arg CMD=api (default) or CMD=business.
-FROM golang:1.23.4 AS build
+FROM golang:1.27.4 AS build
 ARG CMD=api
 WORKDIR /src
 COPY go.mod go.sum ./

@@ -1,0 +1,2 @@
+# A forged unsigned JWT ("alg": "none") that the end-to-end test sends to prove the API refuses it.
+0b46b10a1ed1a6d4d3f7123559a522a0bc64ef37:backend/internal/httpapi/e2e_test.go:generic-api-key:137

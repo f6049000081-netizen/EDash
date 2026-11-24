@@ -67,6 +67,12 @@ import (
 	"superapp/backend/internal/rails/telebirr"
 )
 
+// sandboxTopUps reports whether POST /v1/sandbox/topups exists. It credits a wallet with test money from
+// nothing, so it must never be reachable outside the dev environment, whatever else is configured.
+func sandboxTopUps(getenv func(string) string) bool {
+	return getenv("APP_ENV") == "dev"
+}
+
 func main() {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	if err := run(log); err != nil {
@@ -259,7 +265,7 @@ func run(log *slog.Logger) error {
 			Pool: pool, Ledger: l, Payments: svc, Identity: ids, Auth: ids, Log: log, Notify: notifier, Payouts: pay,
 			Merchants: &merchants.Service{Pool: pool}, KYB: docs, Commerce: shops,
 			Web:      &bizweb.Store{Pool: pool, PIN: &platform.PINVerifier{Pool: pool}},
-			Webhooks: webhooks, Sandbox: true, ClientIPHeader: os.Getenv("CLIENT_IP_HEADER"),
+			Webhooks: webhooks, Sandbox: sandboxTopUps(os.Getenv), ClientIPHeader: os.Getenv("CLIENT_IP_HEADER"),
 		}).Routes(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,

@@ -19,6 +19,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"superapp/backend/internal/outbox"
+	"superapp/backend/internal/outbox/outboxtest"
 	"superapp/backend/internal/platform"
 )
 
@@ -38,6 +39,7 @@ func setup(t *testing.T) context.Context {
 	if poolErr != nil {
 		t.Fatal(poolErr)
 	}
+	outboxtest.Exclusive(t, pool)
 	return context.Background()
 }
 

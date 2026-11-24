@@ -147,6 +147,14 @@ func (w *statusWriter) WriteHeader(s int) { w.status = s; w.ResponseWriter.Write
 
 func (s *Server) logRequests(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Safe defaults for every response: balances and personal data must not be kept by proxies or
+		// shared caches, and nothing is sniffed as another content type or framed. A handler that
+		// serves something cacheable (product photos) sets its own Cache-Control.
+		h := w.Header()
+		h.Set("Cache-Control", "no-store")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Referrer-Policy", "no-referrer")
 		start := time.Now()
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(sw, r)

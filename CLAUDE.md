@@ -73,7 +73,7 @@ docker exec -i g1db psql -q -U postgres -v ON_ERROR_STOP=1 < db/schema.sql
 # tests, from backend/ (Git Bash: MSYS_NO_PATHCONV=1 and $(pwd -W) are needed)
 MSYS_NO_PATHCONV=1 docker run --rm --network g1net -v "$(pwd -W):/src" -v g1gomod:/go/pkg/mod \
   -v g1gocache:/root/.cache/go-build -w /src \
-  -e TEST_DATABASE_URL=postgres://postgres:test@g1db:5432/postgres golang:1.23.4 \
+  -e TEST_DATABASE_URL=postgres://postgres:test@g1db:5432/postgres -e GOTOOLCHAIN=auto golang:1.23.4 \
   sh -c 'gofmt -l . ; go vet ./... && go test -race -count=1 ./...'
 
 # contract lint
@@ -83,6 +83,10 @@ npx -y @redocly/cli@1.25.0 lint api/openapi.yaml   # expect "valid", 24 style wa
 There is no migration tool yet. Schema changes go straight into `db/schema.sql`, and tests run against a fresh load of it.
 
 ## Gotchas seen in this repo
+
+- The backend needs Go 1.27.4 (`go.mod`). The dev scripts still use the `golang:1.23.4` image and pass `-e GOTOOLCHAIN=auto`, so Go fetches 1.27.4 into the `g1gomod` volume once; without that flag the image refuses to build. The production `Dockerfile` uses `golang:1.27.4`.
+- Use `127.0.0.1`, not `localhost`, for the dev servers from Windows: `localhost` tries IPv6 first, and Docker Desktop's IPv6 port forwarding can stall for minutes after a container restart.
+- `gitleaks` flags one forged test token in history; `.gitleaksignore` lists it. Run `docker run --rm -v "$(pwd -W):/repo" zricethezav/gitleaks:v8.21.2 git /repo` before pushing.
 
 - Python on Windows writes CRLF in text mode, which gofmt flags. Open files with `newline=''`.
 - In Bash heredocs, a backslash before a newline can get eaten before Python sees it. For edits containing `\`, write the script to a file first.

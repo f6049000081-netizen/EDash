@@ -135,6 +135,31 @@ Starting a transfer by phone number (`payee_phone`) shows the recipient's verifi
 - Lookups are kept 48 hours in `payments.payee_lookups`, with the number stored only as a SHA-256 hash. Parallel requests can't slip past a limit (advisory locks per account and per phone).
 - QR payments aren't counted: a QR code is given out by the shop.
 
+## Security testing
+
+Last full run on 2026-11-25:
+- **Automated:** the Go suite with the race detector, `go vet`, `govulncheck` (no reachable vulnerabilities after moving to Go 1.27.4 and current `x/net`, `x/image`, `x/text`, `x/crypto`, `go-jose`, `compress` and `pgx`), and `gitleaks` over the whole history.
+- **Live, against the dev stack** (61 checks):
+  - every private route without a token;
+  - forged, tampered and unsigned tokens;
+  - refresh-token rotation and reuse detection;
+  - OTP and PIN brute force;
+  - other people's payments, phones and shops (13 shop routes);
+  - bad amounts, currencies and QR checksums;
+  - idempotency conflicts;
+  - 10 parallel confirms of one payment and parallel overspending;
+  - SQL and HTML in inputs;
+  - oversized bodies;
+  - forged webhooks, CORS, security headers, and console sessions and cookies.
+- **Fixed in that run:**
+  - the sandbox top-up route was switched on in every build (now only with `APP_ENV=dev`, with a test);
+  - API responses now carry `Cache-Control: no-store`, `nosniff`, `X-Frame-Options: DENY` and `no-referrer`;
+  - two tests that took each other's outbox events when run in parallel now take a lock.
+- **Known and accepted:**
+  - an oversized JSON body gets 400 rather than 413;
+  - shop settings are validated before the role check (the answer is still 404 for outsiders);
+  - display names may contain HTML, which every screen shows as plain text.
+
 ## Merchants
 
 - **Applying** (`POST /v1/merchants`). A signed-in user with a PIN applies with the shop name, registered name, TIN (10 digits), optional trade licence, category and city. The application goes to `kyb_review` and the applicant becomes its `owner`.
@@ -393,7 +418,7 @@ docker exec -i g1db psql -U postgres -v ON_ERROR_STOP=1 < ../db/schema.sql
 
 docker run --rm --network g1net -v "$PWD:/src" -w /src \
   -e TEST_DATABASE_URL=postgres://postgres:test@g1db:5432/postgres \
-  golang:1.23.4 go test -race ./...
+  -e GOTOOLCHAIN=auto golang:1.23.4 go test -race ./...
 ```
 
 The integration tests cover:

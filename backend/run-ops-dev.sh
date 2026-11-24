@@ -22,9 +22,9 @@ if [ ! -f .dex/config.yaml ] || ! grep -q selam.admin .dex/config.yaml; then
   mkdir -p .dex
   CLIENT_SECRET=$(rand 32)
   P1=$(rand 12); P2=$(rand 12); P3=$(rand 12)
-  H1=$(printf %s "$P1" | MSYS_NO_PATHCONV=1 $GO -i golang:1.23.4 go run ./cmd/devtool hash-password)
-  H2=$(printf %s "$P2" | MSYS_NO_PATHCONV=1 $GO -i golang:1.23.4 go run ./cmd/devtool hash-password)
-  H3=$(printf %s "$P3" | MSYS_NO_PATHCONV=1 $GO -i golang:1.23.4 go run ./cmd/devtool hash-password)
+  H1=$(printf %s "$P1" | MSYS_NO_PATHCONV=1 $GO -i -e GOTOOLCHAIN=auto golang:1.23.4 go run ./cmd/devtool hash-password)
+  H2=$(printf %s "$P2" | MSYS_NO_PATHCONV=1 $GO -i -e GOTOOLCHAIN=auto golang:1.23.4 go run ./cmd/devtool hash-password)
+  H3=$(printf %s "$P3" | MSYS_NO_PATHCONV=1 $GO -i -e GOTOOLCHAIN=auto golang:1.23.4 go run ./cmd/devtool hash-password)
   cat > .dex/config.yaml <<EOF
 issuer: $ISSUER
 storage: {type: memory}
@@ -57,7 +57,7 @@ EOF
     IFS='|' read -r EMAIL NAME ROLES <<EOF2
 $s
 EOF2
-    MSYS_NO_PATHCONV=1 $GO --network g1net -e DATABASE_URL=postgres://postgres:test@g1db:5432/g1dev golang:1.23.4 \
+    MSYS_NO_PATHCONV=1 $GO --network g1net -e DATABASE_URL=postgres://postgres:test@g1db:5432/g1dev -e GOTOOLCHAIN=auto golang:1.23.4 \
       go run ./cmd/devtool invite-staff "$EMAIL" "$NAME" "$ROLES" </dev/null
   done
 fi
@@ -68,10 +68,10 @@ MSYS_NO_PATHCONV=1 docker run -d --name g1dex --network g1net -p 127.0.0.1:5556:
   ghcr.io/dexidp/dex:v2.41.1 dex serve /etc/dex/config.yaml >/dev/null
 
 MSYS_NO_PATHCONV=1 docker run --rm -v "$SRC:/src" -v g1gomod:/go/pkg/mod -v g1gocache:/root/.cache/go-build \
-  -w /src -e CGO_ENABLED=0 golang:1.23.4 go build -o bin/ops ./cmd/ops
+  -w /src -e CGO_ENABLED=0 -e GOTOOLCHAIN=auto golang:1.23.4 go build -o bin/ops ./cmd/ops
 docker rm -f g1ops >/dev/null 2>&1 || true
 MSYS_NO_PATHCONV=1 docker run -d --name g1ops --network container:g1dex --env-file .dex/ops.env --env-file .s3/docs.env \
   -v "$SRC/bin:/app:ro" golang:1.23.4 /app/ops >/dev/null
-for i in 1 2 3 4 5 6 7 8 9 10; do curl -sf http://localhost:8090/healthz >/dev/null && break; sleep 2; done
-curl -sf http://localhost:8090/healthz >/dev/null && echo "ok - console on http://localhost:8090/ops/ (passwords in backend/.dex/passwords.txt)" \
+for i in 1 2 3 4 5 6 7 8 9 10; do curl -sf --max-time 3 http://127.0.0.1:8090/healthz >/dev/null && break; sleep 2; done
+curl -sf --max-time 3 http://127.0.0.1:8090/healthz >/dev/null && echo "ok - console on http://localhost:8090/ops/ (passwords in backend/.dex/passwords.txt)" \
   || { docker logs g1ops 2>&1 | tail -5; exit 1; }
