@@ -183,6 +183,7 @@ var actionPermission = map[string]string{
 	"staff.reinstate":    "staff.manage",
 	"order.refund":       "orders.settle",
 	"order.complete":     "orders.settle",
+	"recon.resolve":      "recon.resolve",
 }
 
 var actionTarget = map[string]string{
@@ -192,6 +193,7 @@ var actionTarget = map[string]string{
 	"case.escalate": "case", "case.resolve": "case",
 	"staff.invite": "staff", "staff.roles": "staff", "staff.suspend": "staff", "staff.reinstate": "staff",
 	"order.refund": "order", "order.complete": "order",
+	"recon.resolve": "recon_exception",
 }
 
 // Permission is the permission an action kind needs.
@@ -464,6 +466,8 @@ func (s *Service) apply(ctx context.Context, tx pgx.Tx, staff uuid.UUID, act Act
 		return s.applyStaff(ctx, tx, staff, act)
 	case "order.refund", "order.complete":
 		return orderErr(s.Commerce.SettleTx(ctx, tx, act.Target, strings.TrimPrefix(act.Kind, "order."), staff))
+	case "recon.resolve":
+		return resolveReconTx(ctx, tx, staff, act.Target, act.Params["reason"], act.Note)
 	}
 	return fmt.Errorf("ops: unknown action %q", act.Kind)
 }

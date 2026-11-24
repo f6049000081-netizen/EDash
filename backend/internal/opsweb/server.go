@@ -115,6 +115,8 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("GET /ops/users/{id}", s.authed(s.goToCase))
 	mux.Handle("GET /ops/orders", s.authed(s.orderList))
 	mux.Handle("POST /ops/orders/{id}/action", s.authed(s.orderAction))
+	mux.Handle("GET /ops/recon", s.authed(s.reconPage))
+	mux.Handle("POST /ops/recon/{id}/resolve", s.authed(s.reconResolve))
 	mux.Handle("GET /ops/staff", s.authed(s.staffPage))
 	mux.Handle("POST /ops/staff", s.authed(s.staffInvite))
 	mux.Handle("POST /ops/staff/{id}/action", s.authed(s.staffAction))
@@ -613,6 +615,37 @@ func (s *Server) orderAction(w http.ResponseWriter, r *http.Request, sess *ops.S
 	s.back(w, r, "/ops/orders", outcomeCode(out, err))
 }
 
+func (s *Server) reconPage(w http.ResponseWriter, r *http.Request, sess *ops.Session) {
+	if !sess.Staff.Can("recon.resolve", ops.View) {
+		s.render(w, r, http.StatusForbidden, "forbidden", sess, nil)
+		return
+	}
+	open := r.URL.Query().Get("show") != "resolved"
+	list, err := s.Ops.ReconExceptions(r.Context(), open, 300)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	statements, err := s.Ops.ReconStatements(r.Context(), 30)
+	if err != nil {
+		s.serverError(w, r, err)
+		return
+	}
+	s.render(w, r, http.StatusOK, "recon", sess, map[string]any{"List": list, "Statements": statements, "Open": open})
+}
+
+func (s *Server) reconResolve(w http.ResponseWriter, r *http.Request, sess *ops.Session) {
+	id, err := uuid.Parse(r.PathValue("id"))
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	out, err := s.Ops.Do(r.Context(), actor(r, sess.Staff), ops.Action{Kind: "recon.resolve", Target: id,
+		Note: r.PostFormValue("note"), Params: map[string]string{"reason": r.PostFormValue("reason")}})
+	s.logUnexpected(r, err)
+	s.back(w, r, "/ops/recon", outcomeCode(out, err))
+}
+
 func (s *Server) approvalList(w http.ResponseWriter, r *http.Request, sess *ops.Session) {
 	pending, err := s.Ops.Approvals(r.Context(), true, uuid.Nil, 100)
 	if err != nil {
@@ -701,6 +734,10 @@ var labels = map[string]string{
 	"support_agent": "Support agent", "merchant_ops": "Merchant operations", "content_editor": "Content editor",
 	"left":         "Left",
 	"order.refund": "Refund the customer", "order.complete": "Pay the shop",
+	"recon.resolve": "Resolve reconciliation exception", "telebirr": "telebirr",
+	"amount_mismatch": "Amount differs", "unmatched": "Not settled on our side",
+	"missing_internal": "We have no record", "missing_at_partner": "Not on the statement",
+	"processing": "Processing", "requires_confirmation": "Not confirmed",
 	"pickup": "Pickup", "delivery": "Delivery", "ready": "Ready", "on_the_way": "On the way",
 }
 
@@ -744,8 +781,14 @@ func (s *Server) parseTemplates() error {
 			}
 			return "info"
 		},
-		"list": func(v ...string) []string { return v },
-		"has":  func(list []string, v string) bool { return slices.Contains(list, v) },
+		"list":       func(v ...string) []string { return v },
+		"deref":      func(m *money.Money) money.Money { return *m },
+		"derefID":    func(id *uuid.UUID) uuid.UUID { return *id },
+		"resolution": func(k string) string { return or(ops.ReconResolutions[k], k) },
+		"resolutions": func() []string {
+			return []string{"timing", "partner_corrected", "settled_since", "customer_refunded", "duplicate", "other"}
+		},
+		"has": func(list []string, v string) bool { return slices.Contains(list, v) },
 		"roleNames": func(csv string) string {
 			var out []string
 			for _, r := range strings.Split(csv, ",") {
@@ -774,6 +817,8 @@ func (s *Server) parseTemplates() error {
 				return "/ops/users/" + id
 			case "order":
 				return "/ops/orders"
+			case "recon_exception":
+				return "/ops/recon?show=resolved"
 			}
 			return "/ops/staff"
 		},

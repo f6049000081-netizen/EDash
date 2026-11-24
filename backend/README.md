@@ -225,6 +225,7 @@ A separate server (`cmd/ops`, port 8090) with server-rendered pages for staff (`
   - **Freeze** (second person) stops the customer sending or paying; they're told their account is on hold, not why. Unfreeze the same way.
   - **Resolve** with an outcome, once no payment is still held. **Escalate** hands the case to AML compliance, who decide whether to report to the Financial Intelligence Service; the customer must not be told.
   - The case page shows the customer (masked phone, balance, 30-day activity), the payments with the rules that fired, pending requests, and the history of the case, its payments and its customer.
+- **Reconciliation** (`/ops/recon`, `ops/recon.go`, permission `recon.resolve`: finance officers and super admins act alone, as in the permission matrix). Every exception from a statement import is listed, oldest business day first: what the partner says, what we have, our payment's status now (it may have settled since), and the customer (name or masked phone). Staff record what happened: timing (on another day's statement), the partner corrected their statement, our payment settled since, the partner refunded the customer, a duplicate, or other, always with a note of 10+ characters. It's audited as `recon.resolve` and moves no money; a balance correction is separate and isn't built yet. Below the list: the last 30 statements with lines, matched, exceptions and how many are still open. The menu shows the open count.
 - **Staff management.** Invite (name, company email, roles), change roles, suspend (signed out at once) and reinstate, each needing a second super admin. The request carries the details, so the approver sees exactly what will change. Nobody can request or approve a change to their own access, and the last active super admin can't be removed.
 - **Not built yet:** reversing failed payouts, refunds for held top-ups, and a case view for merchants.
 
@@ -285,7 +286,7 @@ Guards: ETB only, from ETB 1 to ETB 100,000 per top-up until KYC limits are set,
 - `unmatched`: our side isn't succeeded.
 - `missing_internal`: the partner has a payment we have no record of.
 
-It also lists our succeeded top-ups that are missing from the statement. The run exits with status 2 when there are exceptions, so a scheduler can alert on it. The input is a normalised CSV (`partner_ref,amount,currency,occurred_at`). A small mapper from telebirr's own statement layout is still needed once we have a real file.
+It also lists our succeeded top-ups that are missing from the statement. Every line that didn't match and every top-up missing from the statement is stored in `recon.exceptions` (the imported lines themselves are never changed), and operations staff resolve them on the console's Reconciliation page. The run exits with status 2 when there are exceptions, so a scheduler can alert on it. The input is a normalised CSV (`partner_ref,amount,currency,occurred_at`). A small mapper from telebirr's own statement layout is still needed once we have a real file.
 
 ### telebirr details still to confirm
 
@@ -486,7 +487,7 @@ curl -X POST localhost:8080/v1/auth/otp/verify -H 'Content-Type: application/jso
   - Confirm the points under "telebirr details still to confirm" with the merchant agreement.
   - Map telebirr's statement file to the recon CSV and schedule the daily run.
   - Add in-app checkout.
-  - Show reconciliation exceptions in the admin console.
+  - Ledger corrections for reconciliation exceptions that need one (maker-checker), once real statements show what's needed.
 - **Production device-key settings:** once phones run app 0.7.0, set `KEY_ATTESTATION=require`, `DPOP_REQUIRED=android` and `ANDROID_SIGNER_SHA256` (the Play app signing certificate).
 - **iPhone:** the Secure Enclave keys and App Attest, then `DPOP_REQUIRED=android,ios`.
 - **Risk use of device signals:** for example, review payments from phones whose boot isn't verified or whose patch level is very old.

@@ -23,6 +23,7 @@ type Counts struct {
 	Applications, Approvals, HeldPayouts, Suspended int
 	Cases, CasesOverdue                             int
 	OrdersToSettle                                  int
+	ReconOpen                                       int
 }
 
 func (s *Service) Counts(ctx context.Context, viewer uuid.UUID) (Counts, error) {
@@ -34,9 +35,10 @@ func (s *Service) Counts(ctx context.Context, viewer uuid.UUID) (Counts, error) 
 		       (SELECT count(*) FROM merchant.merchants WHERE status = 'suspended'),
 		       (SELECT count(*) FROM risk.cases WHERE status NOT IN ('resolved', 'escalated_aml')),
 		       (SELECT count(*) FROM risk.cases WHERE status NOT IN ('resolved', 'escalated_aml') AND sla_due_at < $1),
-		       (SELECT count(*) FROM commerce.orders WHERE review_at IS NOT NULL AND status IN ('accepted', 'ready', 'on_the_way'))`,
+		       (SELECT count(*) FROM commerce.orders WHERE review_at IS NOT NULL AND status IN ('accepted', 'ready', 'on_the_way')),
+		       (SELECT count(*) FROM recon.exceptions WHERE status = 'open')`,
 		s.now(), viewer).
-		Scan(&c.Applications, &c.Approvals, &c.HeldPayouts, &c.Suspended, &c.Cases, &c.CasesOverdue, &c.OrdersToSettle)
+		Scan(&c.Applications, &c.Approvals, &c.HeldPayouts, &c.Suspended, &c.Cases, &c.CasesOverdue, &c.OrdersToSettle, &c.ReconOpen)
 	return c, err
 }
 

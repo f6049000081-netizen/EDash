@@ -976,6 +976,28 @@ CREATE TABLE admin.audit_log_default PARTITION OF admin.audit_log DEFAULT;
 CREATE TRIGGER audit_append_only BEFORE UPDATE OR DELETE ON admin.audit_log
     FOR EACH ROW EXECUTE FUNCTION ledger.forbid_mutation();
 
+-- What needs a person after a statement import: every line that didn't match, and every intent we marked
+-- succeeded that the statement doesn't mention. Statement lines stay as imported; the work state lives here.
+-- Resolving one records what happened. It never moves money: a ledger correction is separate and goes
+-- through maker-checker.
+CREATE TABLE recon.exceptions (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    statement_id    UUID NOT NULL REFERENCES recon.partner_statements(id),
+    kind            TEXT NOT NULL CHECK (kind IN ('amount_mismatch', 'unmatched', 'missing_internal', 'missing_at_partner')),
+    line_id         BIGINT REFERENCES recon.statement_lines(id),
+    intent_id       UUID REFERENCES payments.intents(id),
+    status          TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'resolved')),
+    resolution      TEXT CHECK (resolution IN ('timing', 'partner_corrected', 'settled_since', 'customer_refunded', 'duplicate', 'other')),
+    resolution_note TEXT,
+    resolved_by     UUID REFERENCES admin.staff(id),
+    resolved_at     TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CHECK ((kind = 'missing_at_partner') = (line_id IS NULL)),
+    CHECK ((status = 'resolved') = (resolution IS NOT NULL AND resolved_by IS NOT NULL AND resolved_at IS NOT NULL))
+);
+CREATE INDEX ON recon.exceptions (statement_id);
+CREATE INDEX ON recon.exceptions (created_at) WHERE status = 'open';
+
 -- ---------------------------------------------------------------------------
 -- PLATFORM: idempotency, transactional outbox
 -- ---------------------------------------------------------------------------

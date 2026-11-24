@@ -133,6 +133,12 @@ func TestImportMatchesBothWays(t *testing.T) {
 	if stored != 4 {
 		t.Errorf("%d lines stored", stored)
 	}
+	var kinds string
+	_ = pool.QueryRow(ctx, `SELECT string_agg(kind || ':' || (intent_id IS NOT NULL)::text || ':' || (line_id IS NOT NULL)::text, ',' ORDER BY kind)
+		FROM recon.exceptions WHERE statement_id = $1 AND status = 'open'`, rep.StatementID).Scan(&kinds)
+	if kinds != "amount_mismatch:true:true,missing_at_partner:true:false,missing_internal:false:true,unmatched:true:true" {
+		t.Errorf("exceptions: %s", kinds)
+	}
 
 	if _, err := recon.Import(ctx, pool, "telebirr", day, uuid.NewString(), lines); !errors.Is(err, recon.ErrAlreadyImported) {
 		t.Errorf("second statement for the same day: %v", err)

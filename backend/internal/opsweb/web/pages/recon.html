@@ -1,0 +1,73 @@
+{{define "title"}}Reconciliation{{end}}
+{{define "content"}}
+{{$st := .Session.Staff}}{{$csrf := .Session.CSRF}}
+<h1>Reconciliation</h1>
+<p class="muted">Each day's partner statement is matched line by line against our payments. What didn't match comes here: a line whose amount differs from ours, a line for a payment that hasn't settled on our side, a line we have no record of, or a payment we marked as done that the statement doesn't have. Find out what happened with the partner, then record it. Resolving an exception records the outcome and moves no money. If a balance has to be corrected, that is a separate change and needs a second person.</p>
+
+<nav class="tabs" aria-label="Show">
+  <a href="/ops/recon" {{if .Data.Open}}aria-current="page"{{end}}>Open</a>
+  <a href="/ops/recon?show=resolved" {{if not .Data.Open}}aria-current="page"{{end}}>Recently resolved</a>
+</nav>
+
+<div class="card">
+{{if .Data.List}}
+<div class="scroll"><table>
+  <thead><tr><th>Statement</th><th>What's wrong</th><th>Partner reference</th><th class="r">Partner says</th><th class="r">We have</th><th>Our payment now</th><th>Customer</th><th>{{if .Data.Open}}Resolve{{else}}Resolved{{end}}</th></tr></thead>
+  <tbody>
+  {{range .Data.List}}
+  <tr>
+    <td>{{label .Rail}}<br><span class="muted">{{.BusinessDate.Format "2 Jan 2006"}}</span></td>
+    <td><span class="pill warn">{{label .Kind}}</span></td>
+    <td><span class="num">{{or .PartnerRef "—"}}</span>{{if .PartnerAt}}<br><span class="muted">{{when .PartnerAt}}</span>{{end}}</td>
+    <td class="r num">{{if .Partner}}{{etb (deref .Partner)}}{{else}}—{{end}}</td>
+    <td class="r num">{{if .Ours}}{{etb (deref .Ours)}}{{else}}—{{end}}</td>
+    <td>{{if .IntentID}}<span class="pill {{pill .OurStatus}}">{{label .OurStatus}}</span><br><span class="muted num" title="{{.IntentID}}">{{short (derefID .IntentID)}}</span>{{else}}<span class="muted">No record</span>{{end}}</td>
+    <td>{{or .Customer "—"}}</td>
+    <td>
+      {{if eq .Status "open"}}
+        {{if can $st "recon.resolve" "full"}}
+        <form method="post" action="/ops/recon/{{.ID}}/resolve" class="stack">
+          <input type="hidden" name="csrf" value="{{$csrf}}">
+          <label class="sr" for="reason-{{.ID}}">What happened</label>
+          <select id="reason-{{.ID}}" name="reason" required>
+            <option value="">What happened…</option>
+            {{range resolutions}}<option value="{{.}}">{{resolution .}}</option>{{end}}
+          </select>
+          <label class="sr" for="note-{{.ID}}">Details</label>
+          <input id="note-{{.ID}}" name="note" required minlength="10" maxlength="2000" placeholder="Who you spoke to, what they said">
+          <div class="buttons"><button class="primary">Resolve</button></div>
+        </form>
+        {{else}}<span class="muted">—</span>{{end}}
+      {{else}}
+        {{resolution .Resolution}}<br><span class="muted">{{.ResolvedBy}}, {{when .ResolvedAt}}</span><br><span class="muted">{{.Note}}</span>
+      {{end}}
+    </td>
+  </tr>
+  {{end}}
+  </tbody>
+</table></div>
+{{else}}<p class="muted">{{if .Data.Open}}Nothing open. Every statement imported so far matched, or its exceptions are resolved.{{else}}Nothing resolved yet.{{end}}</p>{{end}}
+</div>
+
+<h2>Statements</h2>
+<div class="card">
+{{if .Data.Statements}}
+<div class="scroll"><table>
+  <thead><tr><th>Partner</th><th>Business day</th><th class="r">Lines</th><th class="r">Matched</th><th class="r">Exceptions</th><th>State</th><th>Imported</th></tr></thead>
+  <tbody>
+  {{range .Data.Statements}}
+  <tr>
+    <td>{{label .Rail}}</td>
+    <td>{{.BusinessDate.Format "2 Jan 2006"}}</td>
+    <td class="r num">{{.Lines}}</td>
+    <td class="r num">{{.Matched}}</td>
+    <td class="r num">{{.Exceptions}}</td>
+    <td>{{if eq .Exceptions 0}}<span class="pill ok">Clean</span>{{else if .Open}}<span class="pill warn">{{.Open}} open</span>{{else}}<span class="pill ok">All resolved</span>{{end}}</td>
+    <td class="muted">{{when .ImportedAt}}</td>
+  </tr>
+  {{end}}
+  </tbody>
+</table></div>
+{{else}}<p class="muted">No statements imported yet. telebirr statements arrive once the merchant agreement is signed; they are imported with <code>cmd/recon</code>.</p>{{end}}
+</div>
+{{end}}

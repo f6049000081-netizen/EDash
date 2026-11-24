@@ -17,6 +17,7 @@
       <a href="/ops/merchants?status=review" {{if or (eq .Nav "merchants") (eq .Nav "merchant")}}aria-current="page"{{end}}><span>Merchants</span>{{if .Counts.Applications}}<span class="count">{{.Counts.Applications}} to review</span>{{end}}</a>
       {{if can .Session.Staff "case.resolve" "view"}}<a href="/ops/cases" {{if or (eq .Nav "cases") (eq .Nav "case")}}aria-current="page"{{end}}><span>Risk cases</span>{{if .Counts.Cases}}<span class="count">{{.Counts.Cases}}{{if .Counts.CasesOverdue}} · {{.Counts.CasesOverdue}} late{{end}}</span>{{end}}</a>{{end}}
       {{if can .Session.Staff "order.refund" "view"}}<a href="/ops/orders" {{if eq .Nav "orders"}}aria-current="page"{{end}}><span>Unfinished orders</span>{{if .Counts.OrdersToSettle}}<span class="count">{{.Counts.OrdersToSettle}}</span>{{end}}</a>{{end}}
+      {{if can .Session.Staff "recon.resolve" "view"}}<a href="/ops/recon" {{if eq .Nav "recon"}}aria-current="page"{{end}}><span>Reconciliation</span>{{if .Counts.ReconOpen}}<span class="count">{{.Counts.ReconOpen}} open</span>{{end}}</a>{{end}}
       <a href="/ops/payouts" {{if eq .Nav "payouts"}}aria-current="page"{{end}}><span>Payouts on hold</span>{{if .Counts.HeldPayouts}}<span class="count">{{.Counts.HeldPayouts}}</span>{{end}}</a>
       <a href="/ops/approvals" {{if eq .Nav "approvals"}}aria-current="page"{{end}}><span>Approvals</span>{{if .Counts.Approvals}}<span class="count">{{.Counts.Approvals}}</span>{{end}}</a>
       <a href="/ops/audit" {{if eq .Nav "audit"}}aria-current="page"{{end}}>Audit log</a>

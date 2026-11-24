@@ -9,8 +9,9 @@
 //	missing_internal  the partner has a payment we have no record of (for example a lost notification)
 //
 // The other direction is reported too: intents we marked succeeded on that business day that the
-// statement doesn't mention (MissingAtPartner). Nothing here moves money; operations staff resolve
-// exceptions through the admin console, with maker-checker approval for any ledger correction.
+// statement doesn't mention (MissingAtPartner). Every line that didn't match and every intent missing at
+// the partner is stored in recon.exceptions for operations staff, who resolve them in the console.
+// Nothing here moves money; a ledger correction is separate, with maker-checker approval.
 package recon
 
 import (
@@ -124,11 +125,18 @@ func Import(ctx context.Context, pool *pgxpool.Pool, rail string, businessDate t
 					rep.MatchedTotal = total
 				}
 			}
-			if _, err := tx.Exec(ctx, `
+			var lineID int64
+			if err := tx.QueryRow(ctx, `
 				INSERT INTO recon.statement_lines (statement_id, partner_ref, amount_minor, currency, occurred_at, matched_intent_id, match_status)
-				VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-				id, l.PartnerRef, l.Amount.AmountMinor, string(l.Amount.Currency), l.OccurredAt, intentID, match); err != nil {
+				VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+				id, l.PartnerRef, l.Amount.AmountMinor, string(l.Amount.Currency), l.OccurredAt, intentID, match).Scan(&lineID); err != nil {
 				return err
+			}
+			if match != "matched" {
+				if _, err := tx.Exec(ctx, `INSERT INTO recon.exceptions (statement_id, kind, line_id, intent_id) VALUES ($1, $2, $3, $4)`,
+					id, match, lineID, intentID); err != nil {
+					return err
+				}
 			}
 		}
 
@@ -143,6 +151,12 @@ func Import(ctx context.Context, pool *pgxpool.Pool, rail string, businessDate t
 		rep.MissingAtPartner, err = pgx.CollectRows(rows, pgx.RowTo[uuid.UUID])
 		if err != nil {
 			return err
+		}
+		for _, intent := range rep.MissingAtPartner {
+			if _, err := tx.Exec(ctx, `INSERT INTO recon.exceptions (statement_id, kind, intent_id) VALUES ($1, 'missing_at_partner', $2)`,
+				id, intent); err != nil {
+				return err
+			}
 		}
 		return platform.WriteOutbox(ctx, tx, "recon.statement_imported", id, map[string]any{
 			"statement_id": id, "rail": rail, "business_date": rep.BusinessDate, "lines": rep.Lines,
