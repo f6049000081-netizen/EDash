@@ -255,7 +255,7 @@ Dex has no MFA, so the dev console doesn't ask for a hardware key.
   - The payee of a successful transfer: "Money received".
   - The payer, only when the outcome came after they left the confirm screen: a top-up decided by the partner, or a payment that was `processing` or `held_for_review`. Results shown on screen aren't repeated.
   - Security alerts: sign-in on a new device (not the account's first), PIN reset, PIN changed, and a session ended because a refresh token was reused.
-- **Text** is written in the user's language when the event happens: English and Amharic, with Afaan Oromo and Tigrinya falling back to English until translated. Amounts read "ETB 1,250.00".
+- **Text** is written in the user's language when the event happens: English, Amharic, Afaan Oromo and Tigrinya (the last two are first drafts for a native-speaker check; a test keeps every language complete, with the same placeholders). Amounts read "ETB 1,250.00".
 - **Repeats are harmless:** one notification per (user, outbox event, kind).
 - **Endpoints:** `GET /v1/notifications` (cursor paging, unread count), `POST /v1/notifications/read`, `PUT` and `DELETE /v1/devices/current/push-token`.
 - **Push** goes through Firebase Cloud Messaging (HTTP v1) and is off until `FCM_SERVICE_ACCOUNT_FILE` points at a Firebase service-account key. Without it, notifications show in the app only. Pushes go only to devices that still have a live session, so a device signed out by a PIN reset stops getting them; signing out removes the token, and tokens Firebase reports as gone are deleted.
@@ -478,11 +478,11 @@ curl -X POST localhost:8080/v1/auth/otp/verify -H 'Content-Type: application/jso
   - Play Integrity and App Attest verifiers.
   - Until these exist, the server won't start outside dev.
 - **Shared rate limiting:** the per-IP limiter lives in memory, so it should move to Redis once there's more than one API instance.
-- **Localisation:** Afaan Oromo and Tigrinya SMS text, plus a native-speaker review of the Amharic.
+- **Localisation:** a native-speaker review of the Amharic, Afaan Oromo and Tigrinya sign-in SMS (each fits one message; a test checks).
 - **Fraud review** of the allowed country prefixes. `+1` also reaches Caribbean numbers that SMS-pumping fraud often targets.
 - **Limit values:** compliance fills `identity.kyc_limits`; then switch on `LimitsRequired`.
 - **Push to phones:** create the Firebase project, set `FCM_SERVICE_ACCOUNT_FILE`, and add the Firebase SDK and `google-services.json` to the app so it registers its token.
-- **Notification translations:** Afaan Oromo and Tigrinya text, and a native-speaker check of the Amharic.
+- **Notification translations:** a native-speaker check of the Afaan Oromo and Tigrinya drafts and of the Amharic. The web business console is English and Amharic only.
 - **telebirr go-live:**
   - Confirm the points under "telebirr details still to confirm" with the merchant agreement.
   - Map telebirr's statement file to the recon CSV and schedule the daily run.

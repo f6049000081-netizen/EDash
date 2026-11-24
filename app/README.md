@@ -37,7 +37,7 @@ Bottom navigation follows the design: Home, Explore, a raised centre **Pay** but
 There are four: Amharic (the default), Afaan Oromo, Tigrinya and English. All copy is in `lib/l10n/strings.dart`.
 
 - **English and Amharic** are complete.
-- **Afaan Oromo and Tigrinya are partial first drafts.** Missing keys fall back to English. A native-speaking translator must review and complete both before release.
+- **Afaan Oromo and Tigrinya are complete first drafts** (all 431 texts, since 0.9.0). A native-speaking translator must review both before release. `test/l10n_test.dart` fails if any language is missing a text, so new screens can't quietly fall back to English.
 - **Framework labels.** Flutter ships its own Material labels (back, paste and so on) for Amharic and English but not for Afaan Oromo or Tigrinya, so those labels show in English.
 - **Ge'ez script.** Amharic and Tigrinya use the design system's Ethiopic text styles, one step larger with taller lines. Noto Sans Ethiopic is the fallback in every font stack, so mixed-script text renders.
 - **Dates.** Dates are numeric for now (`Today, 08:42`, `18/11/2026, 08:42`). The design's `Mon 18 Nov` format and the Ethiopian calendar setting are still to do.

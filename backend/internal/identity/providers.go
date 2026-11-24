@@ -39,11 +39,15 @@ func maskPhone(p string) string {
 }
 
 // otpText is kept short: Ge'ez script sends as UCS-2, where one SMS segment holds only 70 characters.
-// Afaan Oromo and Tigrinya fall back to English until the localisation team supplies reviewed copy.
+// The Afaan Oromo and Tigrinya texts are first drafts for a native-speaker check.
 func otpText(locale, code string) string {
 	switch locale {
 	case "am":
 		return fmt.Sprintf("የEDash ኮድዎ %s ነው። ለማንም አያጋሩ።", code)
+	case "om":
+		return fmt.Sprintf("Koodiin EDash keessanii %s dha. Nama kamiifuu hin qoodinaa.", code)
+	case "ti":
+		return fmt.Sprintf("ኮድ EDash ናትኩም %s እዩ። ንማንም ኣይተካፍሉ።", code)
 	default:
 		return fmt.Sprintf("Your EDash code is %s. Never share it with anyone.", code)
 	}
